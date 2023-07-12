@@ -5,8 +5,6 @@ import json
 BARN_URL = "https://barn.traderjoexyz.com"
 CHAIN = "avalanche"
 
-AVAX_USDC_20BP = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
-
 
 class Token:
     def __init__(

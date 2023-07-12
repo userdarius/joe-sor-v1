@@ -6,7 +6,8 @@ CHAIN = "avalanche"
 AVAX_USDC_20BP = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
 
 
-# Testing the get function
+# Testing the get
+
 
 def get(url: str, params=None):
     response = requests.get(url, params=params)
