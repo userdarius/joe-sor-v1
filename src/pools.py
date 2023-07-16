@@ -1,9 +1,6 @@
 import requests
 import json
 
-BARN_URL = "https://barn.traderjoexyz.com"
-CHAIN = "avalanche"
-
 
 class Pool:
     def __init__(
@@ -57,8 +54,8 @@ class Pool:
         self.protocolSharePct = protocolSharePct
 
 
-def get_pools(version: any, size: int):
-    url = f"{BARN_URL}/v1/pools/{CHAIN}/"
+def get_pools(url: any, chain: any, version: any, size: int):
+    url = f"{url}/v1/pools/{chain}/"
     parameter = {"version": version, "pageSize": size}
     response = requests.get(url, parameter)
     if response.status_code == 200:
@@ -67,11 +64,3 @@ def get_pools(version: any, size: int):
         return pools
     else:
         return []
-
-
-poolsv2 = get_pools("v2.0", 100)
-for pool in poolsv2:
-    print(pool.name)  # Or manipulate token properties however you want
-poolsv21 = get_pools("v2.1", 100)
-for pool in poolsv21:
-    print(pool.name)  # Or manipulate token properties however you want
