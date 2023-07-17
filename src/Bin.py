@@ -37,8 +37,8 @@ class Bin:
 
 
 # review
-def get_bins(url: any, chain: any, pair_address: any, radius: int):
-    url = f"{url}/v1/bin/{chain}/{pair_address}/"
+def get_bin(url: any, chain: any, pair_address: any, radius: int, bin_id: any):
+    url = f"{url}/v1/bin/{chain}/{pair_address}/{bin_id}"
     radius = {"radius": radius}
     response = requests.get(url, params=radius)
     if response.status_code == 200:
@@ -47,3 +47,7 @@ def get_bins(url: any, chain: any, pair_address: any, radius: int):
         return bins
     else:
         return []
+
+
+def findBestPathFromAmountIn():
+    pass
