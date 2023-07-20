@@ -23,9 +23,13 @@ for bin in bins:
 
 current_price_xy = bins[0].priceXY
 current_price_yx = bins[0].priceYX
-PAIR_BIN_STEP = pool.lbBinStep
+PAIR_BIN_STEP = pools[0].lbBinStep
+
+current_price_xy = bins[1].priceXY
+current_price_yx = bins[1].priceYX
+PAIR_BIN_STEP = pools[1].lbBinStep
 
 log_price = (current_price_xy * 10**18) / (current_price_yx * 10**18)
-active_id = int(log2(log_price) / log2(1 + PAIR_BIN_STEP / 10_000) + 2**23)
+id = int(log2(log_price) / log2(1 + PAIR_BIN_STEP / 10_000) + 2**23)
 
-print(active_id)
+print(id)
