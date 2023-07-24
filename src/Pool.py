@@ -17,6 +17,7 @@ class Pool:
         lbBinStep,
         lbBaseFeePct,
         lbMaxFeePct,
+        activeBinId,
         liquidityUsd,
         liquidityNative,
         liquidityDepthMinus,
@@ -41,6 +42,7 @@ class Pool:
         self.lbBinStep = lbBinStep
         self.lbBaseFeePct = lbBaseFeePct
         self.lbMaxFeePct = lbMaxFeePct
+        self.activeBinId = activeBinId
         self.liquidityUsd = liquidityUsd
         self.liquidityNative = liquidityNative
         self.liquidityDepthMinus = liquidityDepthMinus
