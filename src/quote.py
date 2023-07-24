@@ -1,31 +1,26 @@
-from dataclasses import dataclass
 import json
 
 
-# Using solidity structure as a reference
-# struct Quote {
-#        address[] route;
-#        address[] pairs;
-#        uint256[] binSteps;
-#        ILBRouter.Version[] versions;
-#        uint128[] amounts;
-#        uint128[] virtualAmountsWithoutSlippage;
-#        uint128[] fees;
-#    }
-@dataclass
-class quote:
-    route: list
-    pairs: list
-    binSteps: list
-    version: int
-    amounts: list
-    virtualAmountsWithoutSlippage: list
-    fees: list
+def convert_quote_to_dict(quote: dict):
+    return json.dumps(quote, sort_keys=True)
 
 
-def convert_quote_to_json(quote: quote):
-    return json.dumps(quote, default=lambda o: o.__dict__, sort_keys=True)
+def convert_dict_to_quote(quote: str):
+    return json.loads(quote)
 
 
-def convert_json_to_quote(json: str):
-    return quote(**json.loads(json))
+quote_dict = {
+    "route": [],
+    "pairs": [],
+    "binSteps": [],
+    "version": 1,
+    "amounts": [],
+    "virtualAmountsWithoutSlippage": [],
+    "fees": [],
+}
+
+quote_json = convert_quote_to_dict(quote_dict)
+print(quote_json)
+
+quote_dict_again = convert_dict_to_quote(quote_json)
+print(quote_dict_again)
