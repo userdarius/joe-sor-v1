@@ -1,4 +1,3 @@
-import pytest
 import requests_mock
 from src.Pool import get_pools, Pool
 
