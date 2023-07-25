@@ -66,3 +66,15 @@ def get_pools(url: any, chain: any, version: any, size: int):
         return pools
     else:
         return []
+
+
+def get_pool(url: any, chain: any, address: any, version: any) -> Pool:
+    url = f"{url}/v1/pools/{chain}/{address}"
+    parameter = {"version": version}
+    response = requests.get(url, parameter)
+    if response.status_code == 200:
+        pool_data = json.loads(response.text)
+        pool = Pool(**pool_data)
+        return pool
+    else:
+        return []
