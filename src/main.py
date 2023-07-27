@@ -6,7 +6,7 @@ from typing import Tuple
 import Structs
 from decimal import Decimal, getcontext
 from typing import List, Union
-import Constants
+from constants import Constants
 
 BARN_URL = "https://barn.traderjoexyz.com"
 CHAIN = "avalanche"
@@ -68,7 +68,7 @@ for bin in bins:
     print(bin.binId)
 
 
-def _getAllRoutes(swapRoutes: Union[][]) -> List[Structs.Routes]:
+def _getAllRoutes(swapRoutes) -> List[Structs.Routes]:
     pass
 
 
@@ -86,6 +86,52 @@ def _getAmountOutFromRoute(amountIn: int, route, pair):
     pass
 
 
+# takes in a Pool object for pair, int as amountIn, Token object for tokenOut - TODO : check if tokenIn not needed for swap
+def _get_amount_out(pair, amount_in, token_out):
+    amount_out = None
+    virtual_amount_without_slippage = None
+    fees = None
+
+    swap_for_y = pair.tokenY == token_out
+
+    if pair.version == "v2.0":
+        try:
+            # TODO : Rewrite using custom swapout function for LB2.0
+            swap_amount_out, swap_fees = ILBLegacyRouter(_legacyRouterV2).get_swap_out(
+                ILBLegacyPair(pair.pairAddress), amount_in, swap_for_y
+            )
+
+            amount_out = swap_amount_out
+            # TODO : test _getV2Quote
+            virtual_amount_without_slippage = getV2Quote(
+                amount_in - fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+            )
+            fees = (swap_fees * 10**18) / amount_in  # fee percentage in amount_in
+
+        except Exception:
+            pass
+
+    elif pair.version == "v2.1":
+        try:
+            # TODO : Rewrite using custom swapout function for LB2.1
+            amount_in_left, swap_amount_out, swap_fees = ILBRouter(
+                _routerV2
+            ).get_swap_out(ILBPair(pair.pairAddress), amount_in, swap_for_y)
+
+            if amount_in_left == 0:
+                amount_out = swap_amount_out
+                # TODO : test _getV2Quote
+                virtual_amount_without_slippage = getV2Quote(
+                    amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+                )
+                fees = (swap_fees * 10**18) / amount_in  # fee percentage in amount_in
+
+        except Exception:
+            pass
+
+    return amount_out, virtual_amount_without_slippage, fees
+
+
 # Returns the reserves of a pair
 # @param pair The pair to get the reserves of
 # @return reserveA, reserveB The reserves of the pair in tokenA and tokenB
@@ -98,43 +144,48 @@ def get_reserves(pair: Pool) -> Tuple[int, int]:
 # Set the precision for Decimal numbers
 getcontext().prec = 128
 
-# Calculates a quote for a V2 pair
-# @param amountIn The amount of tokenIn to swap
-# @param activeId The active bin id of the pair
-# @param binStep The bin step of the pair
-# @param swapForY True if tokenIn is tokenX, false if tokenIn is tokenY
-# @return quote Amount Out if _amount was swapped with no slippage and no fees
+
 def getV2Quote(amount, activeId, binStep, swapForY):
     if swapForY:
         price = getPriceFromId(activeId, binStep)
-        # Perform the mulShiftRoundDown operation
-        intermediate = (Decimal(amount) * price) / Decimal(2 ** Constants.SCALE_OFFSET)
-        # Convert to int and return
+        intermediate = (Decimal(amount) * price) / Decimal(2**Constants.SCALE_OFFSET)
         quote = int(intermediate)
     else:
         price = getPriceFromId(activeId, binStep)
-        # Perform the shiftDivRoundDown operation
-        intermediate = Decimal(amount) / ((Decimal(2) ** Constants.SCALE_OFFSET) * price)
-        # Convert to int and return
+        intermediate = Decimal(amount) / (
+            (Decimal(2) ** Constants.SCALE_OFFSET) * price
+        )
         quote = int(intermediate)
 
     return quote
 
 
 def getPriceFromId(id, binStep):
-    REAL_ID_SHIFT = 2 ** 23  # Placeholder for REAL_ID_SHIFT 
     base = getBase(binStep)
-    exponent = id - REAL_ID_SHIFT
+    exponent = id - Constants.REAL_ID_SHIFT
     price = pow(base, exponent)
     return price
 
 
 # Helpers for the previous utility functions
 def getBase(binStep):
-    return Constants.SCALE + (binStep << Constants.SCALE_OFFSET) // Constants.BASIS_POINT_MAX
+    return (
+        Constants.SCALE
+        + (binStep << Constants.SCALE_OFFSET) // Constants.BASIS_POINT_MAX
+    )
+
 
 def pow(base, exponent):
     return Decimal(base) ** Decimal(exponent)
+
+
+poolTest = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
+idTest = poolTest.activeBinId
+binStepTest = poolTest.lbBinStep
+swapForYTest = True
+amountTest = 1000000000000
+quoteTest = getV2Quote(amountTest, idTest, binStepTest, swapForYTest)
+print(quoteTest)  # weird returns 0 always
 
 print(
     "Pool : "
