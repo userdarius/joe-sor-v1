@@ -47,7 +47,3 @@ def get_bin(url: any, chain: any, pair_address: any, radius: int, bin_id: any):
         return bins
     else:
         return []
-
-
-def findBestPathFromAmountIn():
-    pass
