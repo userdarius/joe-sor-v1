@@ -14,6 +14,8 @@ RADIUS = 25
 PAIR_ADDRESS = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
 BIN_ID = "8376042"
 NB_PART = 5
+MAX_UINT256 = (1 << 256) - 1
+
 
 avax_usdc = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
 usdc_usdt = Pool.get_pool(
@@ -175,8 +177,91 @@ def getBase(binStep):
     )
 
 
-def pow(base, exponent):
-    return Decimal(base) ** Decimal(exponent)
+def pow(x, y):
+    invert = False
+    if y == 0:
+        return 1 << 128
+
+    if y < 0:
+        invert = True
+        abs_y = -y
+
+    if abs_y < 0x100000:
+        result = 1 << 128
+        squared = x
+        if x > 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:
+            squared = MAX_UINT256 // x
+            invert = not invert
+
+        if abs_y & 0x1:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x2:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x4:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x8:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x10:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x20:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x40:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x80:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x100:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x200:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x400:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x800:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x1000:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x2000:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x4000:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x8000:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x10000:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x20000:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x40000:
+            result = (result * squared) >> 128
+        squared = (squared * squared) >> 128
+        if abs_y & 0x80000:
+            result = (result * squared) >> 128
+    else:
+        raise Exception("Uint128x128Math__PowOverflow")
+
+    if result == 0:
+        raise Exception("Uint128x128Math__PowUnderflow")
+
+    if invert:
+        return (1 << 256) // result
+    else:
+        return result
 
 
 poolTest = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
