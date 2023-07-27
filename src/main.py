@@ -7,6 +7,7 @@ import Structs
 from decimal import Decimal, getcontext
 from typing import List, Union
 from constants import Constants
+from math import ceil
 
 BARN_URL = "https://barn.traderjoexyz.com"
 CHAIN = "avalanche"
@@ -88,6 +89,10 @@ def _getAmountOutFromRoute(amountIn: int, route, pair):
     pass
 
 
+def get_swap_out(pair: Pool, amount_in: int, swap_for_y: bool) -> Tuple[int, int]:
+    return 0, 0
+
+
 # takes in a Pool object for pair, int as amountIn, Token object for tokenOut - TODO : check if tokenIn not needed for swap
 def _get_amount_out(pair, amount_in, token_out):
     amount_out = None
@@ -98,35 +103,27 @@ def _get_amount_out(pair, amount_in, token_out):
 
     if pair.version == "v2.0":
         try:
-            # TODO : Rewrite using custom swapout function for LB2.0
-            swap_amount_out, swap_fees = ILBLegacyRouter(_legacyRouterV2).get_swap_out(
-                ILBLegacyPair(pair.pairAddress), amount_in, swap_for_y
-            )
+            swap_amount_out, swap_fees = get_swap_out(pair, amount_in, swap_for_y)
 
             amount_out = swap_amount_out
             # TODO : test _getV2Quote
             virtual_amount_without_slippage = getV2Quote(
                 amount_in - fees, pair.activeBinId, pair.lbBinStep, swap_for_y
             )
-            fees = (swap_fees * 10**18) / amount_in  # fee percentage in amount_in
-
+            fees = (swap_fees * 10**18) / amount_in
         except Exception:
             pass
 
     elif pair.version == "v2.1":
         try:
-            # TODO : Rewrite using custom swapout function for LB2.1
-            amount_in_left, swap_amount_out, swap_fees = ILBRouter(
-                _routerV2
-            ).get_swap_out(ILBPair(pair.pairAddress), amount_in, swap_for_y)
+            swap_amount_out, swap_fees = get_swap_out(pair, amount_in, swap_for_y)
 
-            if amount_in_left == 0:
-                amount_out = swap_amount_out
-                # TODO : test _getV2Quote
-                virtual_amount_without_slippage = getV2Quote(
-                    amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
-                )
-                fees = (swap_fees * 10**18) / amount_in  # fee percentage in amount_in
+            amount_out = swap_amount_out
+            # TODO : test _getV2Quote
+            virtual_amount_without_slippage = getV2Quote(
+                amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+            )
+            fees = (swap_fees * 10**18) / amount_in
 
         except Exception:
             pass
@@ -135,8 +132,7 @@ def _get_amount_out(pair, amount_in, token_out):
 
 
 # Returns the reserves of a pair
-# @param pair The pair to get the reserves of
-# @return reserveA, reserveB The reserves of the pair in tokenA and tokenB
+# returns reserveA, reserveB. The reserves of the pair in tokenA and tokenB
 def get_reserves(pair: Pool) -> Tuple[int, int]:
     reserveA = pair.reserveX
     reserveB = pair.reserveY
@@ -149,11 +145,11 @@ getcontext().prec = 128
 
 def getV2Quote(amount, activeId, binStep, swapForY):
     if swapForY:
-        price = getPriceFromId(activeId, binStep)
+        price = get_price_from_id(activeId, binStep)
         intermediate = (Decimal(amount) * price) / Decimal(2**Constants.SCALE_OFFSET)
         quote = int(intermediate)
     else:
-        price = getPriceFromId(activeId, binStep)
+        price = get_price_from_id(activeId, binStep)
         intermediate = Decimal(amount) / (
             (Decimal(2) ** Constants.SCALE_OFFSET) * price
         )
@@ -162,19 +158,10 @@ def getV2Quote(amount, activeId, binStep, swapForY):
     return quote
 
 
-def getPriceFromId(id, binStep):
-    base = getBase(binStep)
-    exponent = id - Constants.REAL_ID_SHIFT
-    price = pow(base, exponent)
-    return price
-
-
-# Helpers for the previous utility functions
-def getBase(binStep):
-    return (
-        Constants.SCALE
-        + (binStep << Constants.SCALE_OFFSET) // Constants.BASIS_POINT_MAX
-    )
+def get_price_from_id(bin_step, active_id):
+    base = (1 << 128) + (bin_step << 128) // 10_000
+    exponent = active_id - 2**23
+    return pow(base, exponent)
 
 
 def pow(x, y):
@@ -262,6 +249,83 @@ def pow(x, y):
         return (1 << 256) // result
     else:
         return result
+
+
+def get_base_fee(params, bin_step):
+    return params.base_factor * bin_step * 10**10
+
+
+def get_variable_fee(params, bin_step):
+    return (
+        (params.volatility_accumulator * bin_step) ** 2
+        * params.variable_fee_control
+        // 100
+    )
+
+
+def get_total_fee(params, bin_step):
+    return int(get_base_fee(params, bin_step) + get_variable_fee(params, bin_step))
+
+
+def get_fee_amount(amount_in, fee):
+    return ceil(amount_in * fee // 10**18)
+
+
+def get_fee_amount_from(amount_in, fee):
+    denominator = 10**18 - fee
+    return ceil(amount_in * fee // denominator)
+
+
+# TODO : seperate RPC call for params
+def get_protocol_fees(fee_amount, params):
+    return fee_amount * params.protocol_share // 10**18
+
+
+def update_volatility_reference(self):
+    self.volatility_reference = int(
+        self.volatility_accumulator * self.reduction_factor // 10_000
+    )
+
+
+def update_volatility_accumulator(self, active_id):
+    delta_id = abs(active_id - self.index_reference)
+    self.volatility_accumulator = min(
+        self.volatility_reference + delta_id * 10_000,
+        self.max_volatility_accumulator,
+    )
+
+
+def update_references(self, block_timestamp):
+    dt = block_timestamp - self.time_of_last_update
+
+    if dt >= self.filter_period:
+        self.index_reference = self.active_id
+        if dt < self.decay_period:
+            self.update_volatility_reference()
+        else:
+            self.volatility_reference = 0
+
+
+def update_volatility_parameters(self, active_id, block_timestamp):
+    self.update_references(block_timestamp)
+    self.update_volatility_accumulator(active_id)
+
+
+def get_next_non_empty_bin(swap_for_y, active_id):
+    ids = list(bins.keys())  # TODO : rewrite with Bin object
+    ids.sort()
+
+    if swap_for_y:
+        # return the first id that is less than active_id
+        for id in ids[::-1]:
+            if id < active_id:
+                return id
+    else:
+        # return the first id that is greater than active_id
+        for id in ids:
+            if id > active_id:
+                return id
+    return None
 
 
 poolTest = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
