@@ -90,39 +90,25 @@ def get_swap_out(pair, amount_in, swap_for_y) -> Tuple[int, int]:
 
 
 # takes in a Pool object for pair, int as amountIn, Token object for tokenOut - TODO : check if tokenIn not needed for swap
-def _get_amount_out(pair, amount_in, token_out):
+def get_amount_out(pair, amount_in, token_out):
     amount_out = None
     virtual_amount_without_slippage = None
     fees = None
 
     swap_for_y = pair.tokenY == token_out
 
-    if pair.version == "v2.0":
-        try:
-            swap_amount_out, swap_fees = get_swap_out(pair, amount_in, swap_for_y)
+    try:
+        swap_amount_out, swap_fees = swap(pair, amount_in, swap_for_y)
 
-            amount_out = swap_amount_out
-            # TODO : test _getV2Quote
-            virtual_amount_without_slippage = getV2Quote(
-                amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
-            )
-            fees = (swap_fees * 10**18) / amount_in
-        except Exception:
-            pass
+        amount_out = swap_amount_out
+        # TODO : test _getV2Quote
+        virtual_amount_without_slippage = getV2Quote(
+            amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+        )
+        fees = (swap_fees * 10**18) / amount_in
+    except Exception:
+        pass
 
-    elif pair.version == "v2.1":
-        try:
-            swap_amount_out, swap_fees = get_swap_out(pair, amount_in, swap_for_y)
-
-            amount_out = swap_amount_out
-            # TODO : test _getV2Quote
-            virtual_amount_without_slippage = getV2Quote(
-                amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
-            )
-            fees = (swap_fees * 10**18) / amount_in
-
-        except Exception:
-            pass
 
     return amount_out, virtual_amount_without_slippage, fees
 
@@ -136,7 +122,7 @@ def get_reserves(pair) -> Tuple[int, int]:
 
 
 # Set the precision for Decimal numbers
-getcontext().prec = 128
+# getcontext().prec = 128
 
 
 def getV2Quote(amount, activeId, binStep, swapForY):
@@ -384,9 +370,9 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 # idTest = poolTest.activeBinId
 # binStepTest = poolTest.lbBinStep
 # swapForYTest = True
-# amountTest = 100
-# quoteTest = getV2Quote(amountTest, idTest, binStepTest, swapForYTest)
-# print(quoteTest)  # weird returns 0 always
+amountTest = 1
+quoteTest = getV2Quote(amountTest, fetched_active_id, fetched_bin_step, True)
+print(quoteTest)  # weird returns 0 always
 
 # print(
 #    "Pool : "
