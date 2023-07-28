@@ -9,6 +9,7 @@ packages = [{include = "joe_sor_v1"}]
 [tool.poetry.dependencies]
 python = "^3.11"
 requests = "^2.31.0"
+web3 = "^6.7.0"
 
 
 [tool.poetry.group.dev.dependencies]

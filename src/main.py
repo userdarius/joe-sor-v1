@@ -8,41 +8,43 @@ from decimal import Decimal, getcontext
 from typing import List, Union
 from constants import Constants
 from math import ceil
+from Structs import Routes, Route, Pair
+import Params
 
 BARN_URL = "https://barn.traderjoexyz.com"
+NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
 CHAIN = "avalanche"
 RADIUS = 25
-PAIR_ADDRESS = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
-BIN_ID = "8376042"
+PAIR_ADDRESS = "0x4224f6F4C9280509724Db2DbAc314621e4465C29"
 NB_PART = 5
 MAX_UINT256 = (1 << 256) - 1
 
+BTC_b_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.1")
+bin_step = BTC_b_USDC.lbBinStep
+active_id = BTC_b_USDC.activeBinId
 
-avax_usdc = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
-usdc_usdt = Pool.get_pool(
-    BARN_URL, CHAIN, "0x9B2Cc8E6a2Bbb56d6bE4682891a91B0e48633c72", "v2.0"
-)
-print(avax_usdc.name)
-print(usdc_usdt.name + " " + str(usdc_usdt.activeBinId))
+# BIN STATE
+# fetch bins from API
+bins = Bin.get_bins(BARN_URL, CHAIN, PAIR_ADDRESS, RADIUS, active_id)
 
+# initialize an empty dictionary to store bins
+bins_dict = {}
 
-active_id = usdc_usdt.activeBinId
+# iterate over bins and store in dictionary
+for bin in bins:
+    bins_dict[bin.binId] = {
+        "reserveX": bin.reserveX,
+        "reserveY": bin.reserveY,
+        "isActive": bin.binId == active_id,
+    }
 
-bins = {
-    active_id - 5: [0, 1 * 10**18],
-    active_id - 4: [0, 1 * 10**18],
-    active_id - 3: [0, 1 * 10**18],
-    active_id - 2: [0, 1 * 10**18],
-    active_id - 1: [0, 1 * 10**18],
-    active_id: [3 * 10**18, 1 * 10**18],
-    active_id + 1: [3 * 10**18, 0],
-    active_id + 2: [3 * 10**18, 0],
-    active_id + 3: [3 * 10**18, 0],
-    active_id + 4: [3 * 10**18, 0],
-    active_id + 5: [3 * 10**18, 0],
-}
+for binId, data in bins_dict.items():
+    print(binId, data)
+    if data["isActive"]:
+        print("active bin")
 
-print(bins)
+params = Params.get_params(NODE_URL, PAIR_ADDRESS)
+
 
 route = {"part": 0, "amount": 0, "pairs": []}
 routes = {"tokens": [], "routes": []}
@@ -64,11 +66,6 @@ for pool in pools:
 
 # list of all tokens on the avalanche dex
 tokens = Token.get_tokens(BARN_URL, CHAIN)
-
-
-bins = Bin.get_bin(BARN_URL, CHAIN, PAIR_ADDRESS, RADIUS, BIN_ID)
-for bin in bins:
-    print(bin.binId)
 
 
 def _getAllRoutes(swapRoutes) -> List[Structs.Routes]:
@@ -108,7 +105,7 @@ def _get_amount_out(pair, amount_in, token_out):
             amount_out = swap_amount_out
             # TODO : test _getV2Quote
             virtual_amount_without_slippage = getV2Quote(
-                amount_in - fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+                amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
             )
             fees = (swap_fees * 10**18) / amount_in
         except Exception:
@@ -251,6 +248,12 @@ def pow(x, y):
         return result
 
 
+def get_price(bin_step, active_id):
+    base = (1 << 128) + (bin_step << 128) // 10_000
+    exponent = active_id - 2**23
+    return pow(base, exponent)
+
+
 def get_base_fee(params, bin_step):
     return params.base_factor * bin_step * 10**10
 
@@ -276,43 +279,48 @@ def get_fee_amount_from(amount_in, fee):
     return ceil(amount_in * fee // denominator)
 
 
-# TODO : seperate RPC call for params
+def get_amounts(bin_reserves, params, bin_step, swap_for_y, active_id, amount_in):
+    price = get_price(bin_step, active_id)
+
+    if swap_for_y:
+        bin_reserve_out = bin_reserves[1]
+        max_amount_in = (bin_reserve_out << 128) // price
+    else:
+        bin_reserve_out = bin_reserves[0]
+        max_amount_in = bin_reserve_out * price >> 128
+
+    total_fee = get_total_fee(params, bin_step)
+    max_fee = get_fee_amount(max_amount_in, total_fee)
+
+    max_amount_in += max_fee
+
+    if amount_in >= max_amount_in:
+        fee_amount = max_fee
+
+        amount_in = max_amount_in
+        amount_out = bin_reserve_out
+    else:
+        fee_amount = get_fee_amount_from(amount_in, total_fee)
+
+        amount_in_without_fees = amount_in - fee_amount
+
+        if swap_for_y:
+            amount_out = amount_in_without_fees * price >> 128
+        else:
+            amount_out = (amount_in_without_fees << 128) // price
+
+        if amount_out > bin_reserve_out:
+            amount_out = bin_reserve_out
+
+    return amount_in, amount_out, fee_amount
+
+
 def get_protocol_fees(fee_amount, params):
     return fee_amount * params.protocol_share // 10**18
 
 
-def update_volatility_reference(self):
-    self.volatility_reference = int(
-        self.volatility_accumulator * self.reduction_factor // 10_000
-    )
-
-
-def update_volatility_accumulator(self, active_id):
-    delta_id = abs(active_id - self.index_reference)
-    self.volatility_accumulator = min(
-        self.volatility_reference + delta_id * 10_000,
-        self.max_volatility_accumulator,
-    )
-
-
-def update_references(self, block_timestamp):
-    dt = block_timestamp - self.time_of_last_update
-
-    if dt >= self.filter_period:
-        self.index_reference = self.active_id
-        if dt < self.decay_period:
-            self.update_volatility_reference()
-        else:
-            self.volatility_reference = 0
-
-
-def update_volatility_parameters(self, active_id, block_timestamp):
-    self.update_references(block_timestamp)
-    self.update_volatility_accumulator(active_id)
-
-
 def get_next_non_empty_bin(swap_for_y, active_id):
-    ids = list(bins.keys())  # TODO : rewrite with Bin object
+    ids = list(bins.keys())
     ids.sort()
 
     if swap_for_y:
@@ -328,13 +336,59 @@ def get_next_non_empty_bin(swap_for_y, active_id):
     return None
 
 
-poolTest = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
-idTest = poolTest.activeBinId
-binStepTest = poolTest.lbBinStep
-swapForYTest = True
-amountTest = 1000000000000
-quoteTest = getV2Quote(amountTest, idTest, binStepTest, swapForYTest)
-print(quoteTest)  # weird returns 0 always
+def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
+    amount_in, amount_out = amount_to_swap, 0
+    id = params.active_id
+
+    params.update_references(block_timestamp)
+
+    while amount_in > 0:
+        bin_reserves = bins.get(id)
+        if bin_reserves is None:
+            break
+
+        params.update_volatility_accumulator(id)
+
+        amount_in_with_fees, amount_out_of_bin, fee_amount = get_amounts(
+            bin_reserves, params, bin_step, swap_for_y, id, amount_in
+        )
+
+        amount_in -= amount_in_with_fees
+        amount_out += amount_out_of_bin
+
+        protocol_fees = get_protocol_fees(fee_amount, params)
+
+        if protocol_fees > 0:
+            amount_in_with_fees -= protocol_fees
+            # protocol_fees_total += protocol_fees
+
+        if swap_for_y:
+            bin_reserves[0] += amount_in_with_fees
+            bin_reserves[1] -= amount_out_of_bin
+        else:
+            bin_reserves[0] -= amount_out_of_bin
+            bin_reserves[1] += amount_in_with_fees
+
+        if amount_in == 0:
+            break
+
+        id = get_next_non_empty_bin(swap_for_y, id)
+
+    if amount_in > 0:
+        raise Exception("Not enough liquidity")
+
+    params.active_id = id
+
+    return amount_out
+
+
+# poolTest = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
+# idTest = poolTest.activeBinId
+# binStepTest = poolTest.lbBinStep
+# swapForYTest = True
+# amountTest = 100
+# quoteTest = getV2Quote(amountTest, idTest, binStepTest, swapForYTest)
+# print(quoteTest)  # weird returns 0 always
 
 print(
     "Pool : "

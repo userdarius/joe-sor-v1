@@ -37,7 +37,7 @@ class Bin:
 
 
 # review
-def get_bin(url: any, chain: any, pair_address: any, radius: int, bin_id: any):
+def get_bins(url: any, chain: any, pair_address: any, radius: int, bin_id: any):
     url = f"{url}/v1/bin/{chain}/{pair_address}/{bin_id}"
     radius = {"radius": radius}
     response = requests.get(url, params=radius)
