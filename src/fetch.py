@@ -45,7 +45,6 @@ def get_tokens():
     return get(url, parameter)
 
 
-print(get_tokens())
 # print(get_bin_reserveX(AVAX_USDC_20BP, 8376042, 10))
 # print(get_bins(AVAX_USDC_20BP, 8376042, 10))
 # print(list_pools("v2.0"))

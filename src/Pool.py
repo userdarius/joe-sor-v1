@@ -1,5 +1,6 @@
 import requests
 import json
+from Token import Token
 
 
 class Pool:
@@ -35,8 +36,30 @@ class Pool:
         self.name = name
         self.status = status
         self.version = version
-        self.tokenX = tokenX
-        self.tokenY = tokenY
+        self.tokenX = Token(
+            tokenAddress=tokenX["address"],
+            chain=chain,
+            name=tokenX["name"],
+            symbol=tokenX["symbol"],
+            decimals=tokenX["decimals"],
+            reserve=reserveX,
+            priceNative=tokenX["priceNative"],
+            priceUsd=tokenX["priceUsd"],
+            volume=volumeUsd,
+            pctChange=None,
+        )
+        self.tokenY = Token(
+            tokenAddress=tokenY["address"],
+            chain=chain,
+            name=tokenY["name"],
+            symbol=tokenY["symbol"],
+            decimals=tokenY["decimals"],
+            reserve=reserveY,
+            priceNative=tokenY["priceNative"],
+            priceUsd=tokenY["priceUsd"],
+            volume=volumeUsd,
+            pctChange=None,
+        )
         self.reserveX = reserveX
         self.reserveY = reserveY
         self.lbBinStep = lbBinStep

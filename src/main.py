@@ -10,6 +10,7 @@ from constants import Constants
 from math import ceil
 from Structs import Routes, Route, Pair
 import Params
+from web3 import Web3
 
 BARN_URL = "https://barn.traderjoexyz.com"
 NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
@@ -19,31 +20,29 @@ PAIR_ADDRESS = "0x4224f6F4C9280509724Db2DbAc314621e4465C29"
 NB_PART = 5
 MAX_UINT256 = (1 << 256) - 1
 
+
 BTC_b_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.1")
-bin_step = BTC_b_USDC.lbBinStep
-active_id = BTC_b_USDC.activeBinId
+decimalX = BTC_b_USDC.tokenX.decimals
+decimalY = BTC_b_USDC.tokenY.decimals
+fetched_bin_step = BTC_b_USDC.lbBinStep
+fetched_active_id = BTC_b_USDC.activeBinId
 
 # BIN STATE
 # fetch bins from API
-bins = Bin.get_bins(BARN_URL, CHAIN, PAIR_ADDRESS, RADIUS, active_id)
+bins = Bin.get_bins(BARN_URL, CHAIN, PAIR_ADDRESS, RADIUS, fetched_active_id)
 
 # initialize an empty dictionary to store bins
 bins_dict = {}
 
 # iterate over bins and store in dictionary
 for bin in bins:
-    bins_dict[bin.binId] = {
-        "reserveX": bin.reserveX,
-        "reserveY": bin.reserveY,
-        "isActive": bin.binId == active_id,
-    }
+    bins_dict[bin.binId] = [
+        int(bin.reserveX * 10**decimalX),
+        int(bin.reserveY * 10**decimalY),
+    ]
 
-for binId, data in bins_dict.items():
-    print(binId, data)
-    if data["isActive"]:
-        print("active bin")
 
-params = Params.get_params(NODE_URL, PAIR_ADDRESS)
+params_fetched_from_rpc = Params.get_params(NODE_URL, PAIR_ADDRESS)
 
 
 route = {"part": 0, "amount": 0, "pairs": []}
@@ -86,7 +85,7 @@ def _getAmountOutFromRoute(amountIn: int, route, pair):
     pass
 
 
-def get_swap_out(pair: Pool, amount_in: int, swap_for_y: bool) -> Tuple[int, int]:
+def get_swap_out(pair, amount_in, swap_for_y) -> Tuple[int, int]:
     return 0, 0
 
 
@@ -130,7 +129,7 @@ def _get_amount_out(pair, amount_in, token_out):
 
 # Returns the reserves of a pair
 # returns reserveA, reserveB. The reserves of the pair in tokenA and tokenB
-def get_reserves(pair: Pool) -> Tuple[int, int]:
+def get_reserves(pair) -> Tuple[int, int]:
     reserveA = pair.reserveX
     reserveB = pair.reserveY
     return reserveA, reserveB
@@ -169,6 +168,8 @@ def pow(x, y):
     if y < 0:
         invert = True
         abs_y = -y
+    else:
+        abs_y = y
 
     if abs_y < 0x100000:
         result = 1 << 128
@@ -284,19 +285,17 @@ def get_amounts(bin_reserves, params, bin_step, swap_for_y, active_id, amount_in
 
     if swap_for_y:
         bin_reserve_out = bin_reserves[1]
-        max_amount_in = (bin_reserve_out << 128) // price
+        max_amount_in = (int(bin_reserve_out) << 128) // price
     else:
         bin_reserve_out = bin_reserves[0]
-        max_amount_in = bin_reserve_out * price >> 128
+        max_amount_in = int(bin_reserve_out * price) >> 128
 
     total_fee = get_total_fee(params, bin_step)
     max_fee = get_fee_amount(max_amount_in, total_fee)
-
     max_amount_in += max_fee
 
     if amount_in >= max_amount_in:
         fee_amount = max_fee
-
         amount_in = max_amount_in
         amount_out = bin_reserve_out
     else:
@@ -312,7 +311,7 @@ def get_amounts(bin_reserves, params, bin_step, swap_for_y, active_id, amount_in
         if amount_out > bin_reserve_out:
             amount_out = bin_reserve_out
 
-    return amount_in, amount_out, fee_amount
+    return amount_in, int(amount_out), fee_amount
 
 
 def get_protocol_fees(fee_amount, params):
@@ -320,7 +319,7 @@ def get_protocol_fees(fee_amount, params):
 
 
 def get_next_non_empty_bin(swap_for_y, active_id):
-    ids = list(bins.keys())
+    ids = list(bins_dict.keys())
     ids.sort()
 
     if swap_for_y:
@@ -343,16 +342,14 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
     params.update_references(block_timestamp)
 
     while amount_in > 0:
-        bin_reserves = bins.get(id)
+        bin_reserves = bins_dict.get(id)
         if bin_reserves is None:
             break
-
         params.update_volatility_accumulator(id)
 
         amount_in_with_fees, amount_out_of_bin, fee_amount = get_amounts(
             bin_reserves, params, bin_step, swap_for_y, id, amount_in
         )
-
         amount_in -= amount_in_with_fees
         amount_out += amount_out_of_bin
 
@@ -360,6 +357,7 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 
         if protocol_fees > 0:
             amount_in_with_fees -= protocol_fees
+
             # protocol_fees_total += protocol_fees
 
         if swap_for_y:
@@ -390,13 +388,26 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 # quoteTest = getV2Quote(amountTest, idTest, binStepTest, swapForYTest)
 # print(quoteTest)  # weird returns 0 always
 
-print(
-    "Pool : "
-    + str(pools[0].name)
-    + " - (reserveA, reserveB) : "
-    + str(get_reserves(pools[0]))
-)
-print(
-    "reserveA and reserveB for the WAVAX/ USDC pool on avalanche : "
-    + str(get_reserves(Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")))
-)
+# print(
+#    "Pool : "
+#    + str(pools[0].name)
+#    + " - (reserveA, reserveB) : "
+#    + str(get_reserves(pools[0]))
+# )
+# print(
+#    "reserveA and reserveB for the BTC.b / USDC pool on avalanche : "
+#    + str(get_reserves(Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")))
+# )
+
+now = params_fetched_from_rpc.time_of_last_update + 25
+
+
+print("tokenX : " + BTC_b_USDC.tokenX.name)
+print("tokenY : " + BTC_b_USDC.tokenY.name)
+
+# Swap x to y (1 BTC.b to USDC)
+print(swap(1 * 10**8, True, params_fetched_from_rpc, BTC_b_USDC.lbBinStep, now))
+
+
+# Swap y to x (30000 USDC to BTC.b)
+print(swap(30000 * 10**6, False, params_fetched_from_rpc, BTC_b_USDC.lbBinStep, now))
