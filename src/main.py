@@ -85,10 +85,6 @@ def _getAmountOutFromRoute(amountIn: int, route, pair):
     pass
 
 
-def get_swap_out(pair, amount_in, swap_for_y) -> Tuple[int, int]:
-    return 0, 0
-
-
 # takes in a Pool object for pair, int as amountIn, Token object for tokenOut - TODO : check if tokenIn not needed for swap
 def get_amount_out(pair, amount_in, token_out):
     amount_out = None
@@ -109,7 +105,6 @@ def get_amount_out(pair, amount_in, token_out):
     except Exception:
         pass
 
-
     return amount_out, virtual_amount_without_slippage, fees
 
 
@@ -125,22 +120,17 @@ def get_reserves(pair) -> Tuple[int, int]:
 # getcontext().prec = 128
 
 
+# Calculate amountOut if amount was swapped with no slippage and no fees
 def getV2Quote(amount, activeId, binStep, swapForY):
     if swapForY:
-        price = get_price_from_id(activeId, binStep)
-        intermediate = (Decimal(amount) * price) / Decimal(2**Constants.SCALE_OFFSET)
-        quote = int(intermediate)
+        quote = int(amount * get_price_from_id(activeId, binStep)) // (2**128)
     else:
-        price = get_price_from_id(activeId, binStep)
-        intermediate = Decimal(amount) / (
-            (Decimal(2) ** Constants.SCALE_OFFSET) * price
-        )
-        quote = int(intermediate)
+        quote = int(amount * (2**128)) // get_price_from_id(activeId, binStep)
 
     return quote
 
 
-def get_price_from_id(bin_step, active_id):
+def get_price_from_id(active_id, bin_step):
     base = (1 << 128) + (bin_step << 128) // 10_000
     exponent = active_id - 2**23
     return pow(base, exponent)
@@ -370,9 +360,12 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 # idTest = poolTest.activeBinId
 # binStepTest = poolTest.lbBinStep
 # swapForYTest = True
-amountTest = 1
-quoteTest = getV2Quote(amountTest, fetched_active_id, fetched_bin_step, True)
-print(quoteTest)  # weird returns 0 always
+USDCAmountTest = 1 * 10**6 # 1 USDC (6 decimals)
+quoteTestUSDCToBTC = getV2Quote(USDCAmountTest, fetched_active_id, fetched_bin_step, False)
+print("quote test 1 USDC to BTC : " + str(quoteTestUSDCToBTC / 10**8) + " BTC")  
+BTCAmountTest = 1 * 10**8 # 1 BTC (8 decimals)
+quoteTestBTCToUSDC = getV2Quote(BTCAmountTest, fetched_active_id, fetched_bin_step, True)
+print("quote test 1 BTC to USDC : " + str(quoteTestBTCToUSDC / 10**6) + " USDC")
 
 # print(
 #    "Pool : "
@@ -392,8 +385,8 @@ print("tokenX : " + BTC_b_USDC.tokenX.name)
 print("tokenY : " + BTC_b_USDC.tokenY.name)
 
 # Swap x to y (1 BTC.b to USDC)
-print(swap(1 * 10**8, True, params_fetched_from_rpc, BTC_b_USDC.lbBinStep, now))
+print(swap(1 * 10**8, True, params_fetched_from_rpc, fetched_bin_step, now))
 
 
 # Swap y to x (30000 USDC to BTC.b)
-print(swap(30000 * 10**6, False, params_fetched_from_rpc, BTC_b_USDC.lbBinStep, now))
+print(swap(30000 * 10**6, False, params_fetched_from_rpc, fetched_bin_step, now))
