@@ -92,16 +92,20 @@ def get_amount_out(pair, amount_in, token_out):
     fees = None
 
     swap_for_y = pair.tokenY == token_out
+    fees = 0.003e18
+    # 0.3% fees
 
     try:
-        swap_amount_out, swap_fees = swap(pair, amount_in, swap_for_y)
-
-        amount_out = swap_amount_out
-        # TODO : test _getV2Quote
-        virtual_amount_without_slippage = getV2Quote(
-            amount_in - swap_fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+        swap_amount_out = swap(
+            amount_in, swap_for_y, params_fetched_from_rpc, fetched_bin_step, now
         )
-        fees = (swap_fees * 10**18) / amount_in
+        amount_out = swap_amount_out
+
+        virtual_amount_without_slippage = getV2Quote(
+            amount_in - fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+        )
+        swap_fees = get_total_fee(params_fetched_from_rpc, pair.lbBinStep)
+        fees = get_fee_amount(amount_in, swap_fees)
     except Exception:
         pass
 
@@ -360,11 +364,15 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 # idTest = poolTest.activeBinId
 # binStepTest = poolTest.lbBinStep
 # swapForYTest = True
-USDCAmountTest = 1 * 10**6 # 1 USDC (6 decimals)
-quoteTestUSDCToBTC = getV2Quote(USDCAmountTest, fetched_active_id, fetched_bin_step, False)
-print("quote test 1 USDC to BTC : " + str(quoteTestUSDCToBTC / 10**8) + " BTC")  
-BTCAmountTest = 1 * 10**8 # 1 BTC (8 decimals)
-quoteTestBTCToUSDC = getV2Quote(BTCAmountTest, fetched_active_id, fetched_bin_step, True)
+USDCAmountTest = 1 * 10**6  # 1 USDC (6 decimals)
+quoteTestUSDCToBTC = getV2Quote(
+    USDCAmountTest, fetched_active_id, fetched_bin_step, False
+)
+print("quote test 1 USDC to BTC : " + str(quoteTestUSDCToBTC / 10**8) + " BTC")
+BTCAmountTest = 1 * 10**8  # 1 BTC (8 decimals)
+quoteTestBTCToUSDC = getV2Quote(
+    BTCAmountTest, fetched_active_id, fetched_bin_step, True
+)
 print("quote test 1 BTC to USDC : " + str(quoteTestBTCToUSDC / 10**6) + " USDC")
 
 # print(
@@ -390,3 +398,7 @@ print(swap(1 * 10**8, True, params_fetched_from_rpc, fetched_bin_step, now))
 
 # Swap y to x (30000 USDC to BTC.b)
 print(swap(30000 * 10**6, False, params_fetched_from_rpc, fetched_bin_step, now))
+
+
+# Swap x to y (1 BTC.b to USDC)
+print(get_amount_out(BTC_b_USDC, 1 * 10**8, BTC_b_USDC.tokenY))
