@@ -67,26 +67,122 @@ for pool in pools:
 tokens = Token.get_tokens(BARN_URL, CHAIN)
 
 
-def _getAllRoutes(swapRoutes) -> List[Structs.Routes]:
-    pass
+def find_best_path_from_amount_in_multi_path(swap_routes, amount_in):
+    all_routes = get_all_routes(swap_routes)
+    return get_routes_and_parts(all_routes, amount_in)
+
+
+def get_all_routes(swap_routes):
+    all_routes = []
+
+    for swap_route in enumerate(swap_routes):
+        all_pairs = [[] for _ in range(len(swap_route) - 1)]
+        nb_routes = 0
+
+        for j, (token_in, token_out) in enumerate(zip(swap_route, swap_route[1:])):
+            # TODO : integrate tokenIn & tokenOut parameters into pool queries
+            v2_pairs_available = Pool.get_pools(BARN_URL, CHAIN, "v2.0", 100)
+            v2_1_pairs_available = Pool.get_pools(BARN_URL, CHAIN, "v2.1", 100)
+            # legacy_lb_pairs_available = get_all_legacy_lb_pairs(token_in, token_out)
+            # lb_pairs_available = get_all_lb_pairs(token_in, token_out)
+
+            nb_pair = len(v2_pairs_available) + len(v2_1_pairs_available)
+            nb_routes = nb_pair if nb_routes == 0 else nb_routes * nb_pair
+
+            pairs = []
+            for lb_pair in v2_pairs_available + v2_1_pairs_available:
+                pairs.append(
+                    Pair(
+                        lb_pair.tokenY,
+                        lb_pair.version,
+                        lb_pair.lbBinStep,
+                        lb_pair.activeBinId,
+                    )
+                )
+
+            all_pairs[j] = pairs
+
+        routes = []
+        # Dynamic array, no need to define size of pairs initially
+        # nb_pairs_per_route = len(swap_route) -  1
+
+        for j in range(nb_routes):
+            pairs = []
+            index = j
+            for pair_group in enumerate(all_pairs):
+                pairs.append(pair_group[index % len(pair_group)])
+                index //= len(pair_group)
+
+            # Using placeholder values for part and amount as they are not present in the Solidity function
+            routes.append(Route(part=0, amount=0, pairs=pairs))
+
+        all_routes.append(Routes(tokens=swap_route, routes=routes))
+
+    return all_routes
 
 
 # Returns the routes and parts for a given amount in
 # @param allRoutes All routes to get the routes and parts for
 # @param amountIn The amount of tokenIn to swap
 # @return routes, parts The routes and parts for the given amount in
-def _getRoutesAndParts(
-    allRoutes: List[Structs.Routes], amountIn: int
+def get_routes_and_parts(
+    all_routes: List[Structs.Routes], amount_in: int
 ) -> List[Structs.Routes]:
+    for i in range(NB_PART):
+        best_index_route = 0
+        best_index_pairs = 0
+        best_amount = 0
+
+        for j in range(len(all_routes)):
+            routes = all_routes[j].routes
+
+            for k in range(len(routes)):
+                route = routes[k]
+                (
+                    amounts,
+                    virtual_amounts_without_slippage,
+                    fees,
+                ) = get_amount_out_from_route(
+                    amount_in * route.part + 1 / NB_PART,
+                    all_routes[j].tokens,
+                    route.pairs,
+                )
+                amount_out = amounts[len(amounts) - 1]
+
+                if amount_out > route.amount:
+                    amount_out = amount_out - route.amount
+                    if amount_out > best_amount:
+                        best_amount = amount_out
+                        best_index_pairs = k
+                        best_index_route = j
     pass
 
 
-def _getAmountOutFromRoute(amountIn: int, route, pair):
-    pass
+def get_amount_out_from_route(amount_in: int, route, pairs):
+    length = len(route) - 1
+    amounts = []
+    virtual_amounts_without_slippage = []
+    fees = []
+
+    amounts[0] = amount_in
+    virtual_amounts_without_slippage[0] = amount_in
+
+    for i in range(length):
+        if amount_in > 0:
+            amount_out, virtual_amount_without_slippage, fee = get_amount_out(
+                pairs[i], amount_in, route[i], route[i + 1]
+            )
+            amount_in = amount_out
+            fees[i] = fee
+
+            amounts[i + 1] = amount_out
+            virtual_amounts_without_slippage[i + 1] = virtual_amount_without_slippage
+
+    return amounts, virtual_amounts_without_slippage, fees
 
 
 # takes in a Pool object for pair, int as amountIn, Token object for tokenOut - TODO : check if tokenIn not needed for swap
-def get_amount_out(pair, amount_in, token_out):
+def get_amount_out(pair, amount_in, token_in, token_out):
     amount_out = None
     virtual_amount_without_slippage = None
     fees = None
@@ -101,8 +197,8 @@ def get_amount_out(pair, amount_in, token_out):
         )
         amount_out = swap_amount_out
 
-        virtual_amount_without_slippage = getV2Quote(
-            amount_in - fees, pair.activeBinId, pair.lbBinStep, swap_for_y
+        virtual_amount_without_slippage = get_v2_quote(
+            amount_in, pair.activeBinId, pair.lbBinStep, swap_for_y
         )
         swap_fees = get_total_fee(params_fetched_from_rpc, pair.lbBinStep)
         fees = get_fee_amount(amount_in, swap_fees)
@@ -125,7 +221,7 @@ def get_reserves(pair) -> Tuple[int, int]:
 
 
 # Calculate amountOut if amount was swapped with no slippage and no fees
-def getV2Quote(amount, activeId, binStep, swapForY):
+def get_v2_quote(amount, activeId, binStep, swapForY):
     if swapForY:
         quote = int(amount * get_price_from_id(activeId, binStep)) // (2**128)
     else:
@@ -365,12 +461,12 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 # binStepTest = poolTest.lbBinStep
 # swapForYTest = True
 USDCAmountTest = 1 * 10**6  # 1 USDC (6 decimals)
-quoteTestUSDCToBTC = getV2Quote(
+quoteTestUSDCToBTC = get_v2_quote(
     USDCAmountTest, fetched_active_id, fetched_bin_step, False
 )
 print("quote test 1 USDC to BTC : " + str(quoteTestUSDCToBTC / 10**8) + " BTC")
 BTCAmountTest = 1 * 10**8  # 1 BTC (8 decimals)
-quoteTestBTCToUSDC = getV2Quote(
+quoteTestBTCToUSDC = get_v2_quote(
     BTCAmountTest, fetched_active_id, fetched_bin_step, True
 )
 print("quote test 1 BTC to USDC : " + str(quoteTestBTCToUSDC / 10**6) + " USDC")
