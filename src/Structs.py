@@ -1,3 +1,7 @@
+import requests
+import json
+
+
 class Route:
     def __init__(self, part, amount, pairs):
         self.part = part
@@ -11,15 +15,8 @@ class Routes:
         self.routes = routes
 
 
-class Pair:
-    def __init__(
-        self,
-        tokenY,
-        version,
-        bin_step,
-        activeId,
-    ):
-        self.tokenY = tokenY
-        self.version = version
-        self.bin_step = bin_step
-        self.activeId = activeId
+#class Pair:
+#    def __init__(self, tokenX, tokenY):
+#        self.tokenX = tokenX
+#        self.tokenY = tokenY
+

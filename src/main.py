@@ -8,7 +8,7 @@ from decimal import Decimal, getcontext
 from typing import List, Union
 from constants import Constants
 from math import ceil
-from Structs import Routes, Route, Pair
+from Structs import Routes, Route
 import Params
 from web3 import Web3
 
@@ -16,16 +16,16 @@ BARN_URL = "https://barn.traderjoexyz.com"
 NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
 CHAIN = "avalanche"
 RADIUS = 25
-PAIR_ADDRESS = "0x4224f6F4C9280509724Db2DbAc314621e4465C29"
+PAIR_ADDRESS = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
 NB_PART = 5
 MAX_UINT256 = (1 << 256) - 1
 
 
-BTC_b_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.1")
-decimalX = BTC_b_USDC.tokenX.decimals
-decimalY = BTC_b_USDC.tokenY.decimals
-fetched_bin_step = BTC_b_USDC.lbBinStep
-fetched_active_id = BTC_b_USDC.activeBinId
+AVAX_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.1")
+decimalX = AVAX_USDC.tokenX.decimals
+decimalY = AVAX_USDC.tokenY.decimals
+fetched_bin_step = AVAX_USDC.lbBinStep
+fetched_active_id = AVAX_USDC.activeBinId
 
 # BIN STATE
 # fetch bins from API
@@ -43,25 +43,11 @@ for bin in bins:
 
 
 params_fetched_from_rpc = Params.get_params(NODE_URL, PAIR_ADDRESS)
+now = params_fetched_from_rpc.time_of_last_update + 25
 
 
-route = {"part": 0, "amount": 0, "pairs": []}
-routes = {"tokens": [], "routes": []}
-
-
-pools = Pool.get_pools(BARN_URL, CHAIN, "v2.0", 100)
-for pool in pools:
-    print(
-        pool.name
-        + " - "
-        + "binstep : "
-        + str(pool.lbBinStep)
-        + " - "
-        + pool.pairAddress
-        + " - "
-        + "active bin id : "
-        + str(pool.activeBinId)
-    )
+# route = {"part": 0, "amount": 0, "pairs": []}
+# routes = {"tokens": [], "routes": []}
 
 # list of all tokens on the avalanche dex
 tokens = Token.get_tokens(BARN_URL, CHAIN)
@@ -72,53 +58,71 @@ def find_best_path_from_amount_in_multi_path(swap_routes, amount_in):
     return get_routes_and_parts(all_routes, amount_in)
 
 
-def get_all_routes(swap_routes):
-    all_routes = []
+tokenIn = AVAX_USDC.tokenX
+tokenOut = AVAX_USDC.tokenY
 
-    for swap_route in enumerate(swap_routes):
-        all_pairs = [[] for _ in range(len(swap_route) - 1)]
-        nb_routes = 0
+v2pools = Pool.get_pools(BARN_URL, CHAIN, "v2.0", 100)
+for pool in v2pools:
+    print(
+        pool.name
+        + " - "
+        + "tokenX : "
+        + str(pool.tokenX.name)
+        + " - "
+        + "tokenY : "
+        + str(pool.tokenY.name)
+    )
 
-        for j, (token_in, token_out) in enumerate(zip(swap_route, swap_route[1:])):
-            # TODO : integrate tokenIn & tokenOut parameters into pool queries
-            v2_pairs_available = Pool.get_pools(BARN_URL, CHAIN, "v2.0", 100)
-            v2_1_pairs_available = Pool.get_pools(BARN_URL, CHAIN, "v2.1", 100)
-            # legacy_lb_pairs_available = get_all_legacy_lb_pairs(token_in, token_out)
-            # lb_pairs_available = get_all_lb_pairs(token_in, token_out)
 
-            nb_pair = len(v2_pairs_available) + len(v2_1_pairs_available)
-            nb_routes = nb_pair if nb_routes == 0 else nb_routes * nb_pair
+def isIn(pair, token):
+    return pair.tokenX.name == token.name or pair.tokenY.name == token.name
 
-            pairs = []
-            for lb_pair in v2_pairs_available + v2_1_pairs_available:
-                pairs.append(
-                    Pair(
-                        lb_pair.tokenY,
-                        lb_pair.version,
-                        lb_pair.lbBinStep,
-                        lb_pair.activeBinId,
-                    )
-                )
 
-            all_pairs[j] = pairs
+def get_all_routes(pairs):
+    routes = []
 
-        routes = []
-        # Dynamic array, no need to define size of pairs initially
-        # nb_pairs_per_route = len(swap_route) -  1
+    for i in range(len(pairs)):
+        pair = pairs[i]
+        other = None
 
-        for j in range(nb_routes):
-            pairs = []
-            index = j
-            for pair_group in enumerate(all_pairs):
-                pairs.append(pair_group[index % len(pair_group)])
-                index //= len(pair_group)
+        if pair.tokenX.name == tokenIn.name:
+            other = pair.tokenY
+        elif pair.tokenY.name == tokenIn.name:
+            other = pair.tokenX
+        else:
+            continue
 
-            # Using placeholder values for part and amount as they are not present in the Solidity function
-            routes.append(Route(part=0, amount=0, pairs=pairs))
+        if other.name == tokenOut.name:
+            routes.append([pairs[i]])
+            continue
 
-        all_routes.append(Routes(tokens=swap_route, routes=routes))
+        for j in range(i + 1, len(pairs)):
+            inner_other = other
 
-    return all_routes
+            if pairs[j].tokenX.name == inner_other.name:
+                inner_other = pairs[j].tokenY
+            elif pairs[j].tokenY.name == inner_other.name:
+                inner_other = pairs[j].tokenX
+            else:
+                continue
+
+            if inner_other.name == tokenOut.name:
+                routes.append([pairs[i], pairs[j]])
+                continue
+
+            for k in range(j + 1, len(pairs)):
+                if isIn(pairs[k], inner_other) and isIn(pairs[k], tokenOut):
+                    routes.append([pairs[i], pairs[j], pairs[k]])
+
+    return routes
+
+
+routes = get_all_routes(v2pools)
+
+for route in routes:
+    print("route : ")
+    for pair in route:
+        print(pair.tokenX.name + " - " + pair.tokenY.name)
 
 
 # Returns the routes and parts for a given amount in
@@ -461,15 +465,15 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 # binStepTest = poolTest.lbBinStep
 # swapForYTest = True
 USDCAmountTest = 1 * 10**6  # 1 USDC (6 decimals)
-quoteTestUSDCToBTC = get_v2_quote(
+quoteTestUSDCToAVAX = get_v2_quote(
     USDCAmountTest, fetched_active_id, fetched_bin_step, False
 )
-print("quote test 1 USDC to BTC : " + str(quoteTestUSDCToBTC / 10**8) + " BTC")
-BTCAmountTest = 1 * 10**8  # 1 BTC (8 decimals)
-quoteTestBTCToUSDC = get_v2_quote(
-    BTCAmountTest, fetched_active_id, fetched_bin_step, True
+print("quote test 1 USDC to AVAX : " + str(quoteTestUSDCToAVAX / 10**18) + " AVAX")
+AVAXAmountTest = 1 * 10**18  # 1 AVAX (18 decimals)
+quoteTestAVAXToUSDC = get_v2_quote(
+    AVAXAmountTest, fetched_active_id, fetched_bin_step, True
 )
-print("quote test 1 BTC to USDC : " + str(quoteTestBTCToUSDC / 10**6) + " USDC")
+print("quote test 1 AVAX to USDC : " + str(quoteTestAVAXToUSDC / 10**6) + " USDC")
 
 # print(
 #    "Pool : "
@@ -478,23 +482,21 @@ print("quote test 1 BTC to USDC : " + str(quoteTestBTCToUSDC / 10**6) + " USDC")
 #    + str(get_reserves(pools[0]))
 # )
 # print(
-#    "reserveA and reserveB for the BTC.b / USDC pool on avalanche : "
+#    "reserveA and reserveB for the AVAX.b / USDC pool on avalanche : "
 #    + str(get_reserves(Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")))
 # )
 
-now = params_fetched_from_rpc.time_of_last_update + 25
-
-
-print("tokenX : " + BTC_b_USDC.tokenX.name)
-print("tokenY : " + BTC_b_USDC.tokenY.name)
-
-# Swap x to y (1 BTC.b to USDC)
+# Swap x to y (1 AVAX.b to USDC)
 print(swap(1 * 10**8, True, params_fetched_from_rpc, fetched_bin_step, now))
 
 
-# Swap y to x (30000 USDC to BTC.b)
+# Swap y to x (30000 USDC to AVAX.b)
 print(swap(30000 * 10**6, False, params_fetched_from_rpc, fetched_bin_step, now))
 
 
-# Swap x to y (1 BTC.b to USDC)
-print(get_amount_out(BTC_b_USDC, 1 * 10**8, BTC_b_USDC.tokenY))
+# Swap x to y (1 AVAX.b to USDC)
+# print(get_amount_out(AVAX_USDC, 1 * 10**8, AVAX_USDC.tokenY))
+
+
+# Get all routes
+# print(get_all_routes([AVAX_USDC.tokenX, AVAX_USDC.tokenY]))
