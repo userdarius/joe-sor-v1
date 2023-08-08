@@ -61,17 +61,9 @@ def find_best_path_from_amount_in_multi_path(swap_routes, amount_in):
 tokenIn = AVAX_USDC.tokenX
 tokenOut = AVAX_USDC.tokenY
 
-v2pools = Pool.get_pools(BARN_URL, CHAIN, "v2.0", 100)
+v2pools = Pool.get_pools(BARN_URL, CHAIN, "all", 100)
 for pool in v2pools:
-    print(
-        pool.name
-        + " - "
-        + "tokenX : "
-        + str(pool.tokenX.name)
-        + " - "
-        + "tokenY : "
-        + str(pool.tokenY.name)
-    )
+    print(pool.name)
 
 
 def isIn(pair, token):
@@ -81,38 +73,37 @@ def isIn(pair, token):
 def get_all_routes(pairs):
     routes = []
 
-    for i in range(len(pairs)):
-        pair = pairs[i]
+    for i, pair in enumerate(pairs):
         other = None
 
-        if pair.tokenX.name == tokenIn.name:
+        if pair.tokenX.tokenAddress == tokenIn.tokenAddress:
             other = pair.tokenY
-        elif pair.tokenY.name == tokenIn.name:
+        elif pair.tokenY.tokenAddress == tokenIn.tokenAddress:
             other = pair.tokenX
         else:
             continue
 
-        if other.name == tokenOut.name:
-            routes.append([pairs[i]])
+        if other.tokenAddress == tokenOut.tokenAddress:
+            routes.append([pair])
             continue
 
-        for j in range(i + 1, len(pairs)):
+        for j, next_pair in enumerate(pairs[i + 1 :]):
             inner_other = other
 
-            if pairs[j].tokenX.name == inner_other.name:
-                inner_other = pairs[j].tokenY
-            elif pairs[j].tokenY.name == inner_other.name:
-                inner_other = pairs[j].tokenX
+            if next_pair.tokenX.tokenAddress == inner_other.tokenAddress:
+                inner_other = next_pair.tokenY
+            elif next_pair.tokenY.tokenAddress == inner_other.tokenAddress:
+                inner_other = next_pair.tokenX
             else:
                 continue
 
-            if inner_other.name == tokenOut.name:
-                routes.append([pairs[i], pairs[j]])
+            if inner_other.tokenAddress == tokenOut.tokenAddress:
+                routes.append([pair, next_pair])
                 continue
 
-            for k in range(j + 1, len(pairs)):
-                if isIn(pairs[k], inner_other) and isIn(pairs[k], tokenOut):
-                    routes.append([pairs[i], pairs[j], pairs[k]])
+            for k, third_pair in enumerate(pairs[j + i + 2 :]):
+                if isIn(third_pair, inner_other) and isIn(third_pair, tokenOut):
+                    routes.append([pair, next_pair, third_pair])
 
     return routes
 
@@ -122,7 +113,14 @@ routes = get_all_routes(v2pools)
 for route in routes:
     print("route : ")
     for pair in route:
-        print(pair.tokenX.name + " - " + pair.tokenY.name)
+        print(
+            "version : "
+            + str(pair.version)
+            + " | tokenX : "
+            + pair.tokenX.name
+            + " |  tokenY : "
+            + pair.tokenY.name
+        )
 
 
 # Returns the routes and parts for a given amount in
