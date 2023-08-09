@@ -16,61 +16,43 @@ BARN_URL = "https://barn.traderjoexyz.com"
 NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
 CHAIN = "avalanche"
 RADIUS = 25
-PAIR_ADDRESS = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
+PAIR_ADDRESS_WAVAX_USDC = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
+PAIR_ADDRESS_BTC_B_USDC = "0x4224f6F4C9280509724Db2DbAc314621e4465C29"
 NB_PART = 5
 MAX_UINT256 = (1 << 256) - 1
 
 
-AVAX_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.1")
-decimalX = AVAX_USDC.tokenX.decimals
-decimalY = AVAX_USDC.tokenY.decimals
-fetched_bin_step = AVAX_USDC.lbBinStep
-fetched_active_id = AVAX_USDC.activeBinId
-
-# BIN STATE
-# fetch bins from API
-bins = Bin.get_bins(BARN_URL, CHAIN, PAIR_ADDRESS, RADIUS, fetched_active_id)
-
-# initialize an empty dictionary to store bins
-bins_dict = {}
-
-# iterate over bins and store in dictionary
-for bin in bins:
-    bins_dict[bin.binId] = [
-        int(bin.reserveX * 10**decimalX),
-        int(bin.reserveY * 10**decimalY),
-    ]
+AVAX_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS_WAVAX_USDC, "v2.1")
+BTC_B_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS_BTC_B_USDC, "v2.1")
 
 
-params_fetched_from_rpc = Params.get_params(NODE_URL, PAIR_ADDRESS)
-now = params_fetched_from_rpc.time_of_last_update + 25
+def get_bins(pair, active_id, radius):
+    print("active_id : " + str(active_id))
+    print("radius : " + str(radius))
+    bins = Bin.get_bins(BARN_URL, CHAIN, pair.pairAddress, radius, active_id)
+    decimalX = pair.tokenX.decimals
+    decimalY = pair.tokenY.decimals
+    bins_dict = {}
+    for bin in bins:
+        bins_dict[bin.binId] = [
+            int(bin.reserveX * 10**decimalX),
+            int(bin.reserveY * 10**decimalY),
+        ]
+    return bins_dict
 
 
-# route = {"part": 0, "amount": 0, "pairs": []}
-# routes = {"tokens": [], "routes": []}
-
-# list of all tokens on the avalanche dex
-tokens = Token.get_tokens(BARN_URL, CHAIN)
-
-
-def find_best_path_from_amount_in_multi_path(swap_routes, amount_in):
-    all_routes = get_all_routes(swap_routes)
+def find_best_path_from_amount_in_multi_path(
+    swap_routes, amount_in, token_in, token_out
+):
+    all_routes = get_all_routes(swap_routes, token_in, token_out)
     return get_routes_and_parts(all_routes, amount_in)
-
-
-tokenIn = AVAX_USDC.tokenX
-tokenOut = AVAX_USDC.tokenY
-
-v2pools = Pool.get_pools(BARN_URL, CHAIN, "all", 100)
-for pool in v2pools:
-    print(pool.name)
 
 
 def isIn(pair, token):
     return pair.tokenX.name == token.name or pair.tokenY.name == token.name
 
 
-def get_all_routes(pairs):
+def get_all_routes(pairs, tokenIn, tokenOut):
     routes = []
 
     for i, pair in enumerate(pairs):
@@ -108,28 +90,117 @@ def get_all_routes(pairs):
     return routes
 
 
-routes = get_all_routes(v2pools)
+def fetch_rpc_params(PAIR_ADDRESS):
+    params_fetched_from_rpc = Params.get_params(
+        NODE_URL, Web3.to_checksum_address(PAIR_ADDRESS)
+    )
+    now = params_fetched_from_rpc.time_of_last_update + 25
+    return params_fetched_from_rpc, now
 
-for route in routes:
-    print("route : ")
-    for pair in route:
-        print(
-            "version : "
-            + str(pair.version)
-            + " | tokenX : "
-            + pair.tokenX.name
-            + " |  tokenY : "
-            + pair.tokenY.name
+
+def get_amount_out(pair, amount_in, token_in, token_out):
+    amount_out = None
+    virtual_amount_without_slippage = None
+    fees = None
+    print("yo")
+    print(pair.pairAddress)
+    params_fetched_from_rpc, now = fetch_rpc_params(
+        Web3.to_checksum_address(pair.pairAddress)
+    )
+    print("yo")
+
+    swap_for_y = pair.tokenY == token_out
+    fees = 0.003e18
+    # 0.3% fees
+    try:
+        swap_amount_out = swap(
+            pair, amount_in, swap_for_y, params_fetched_from_rpc, pair.lbBinStep, now
         )
+        amount_out = swap_amount_out
+
+        virtual_amount_without_slippage = get_v2_quote(
+            amount_in, pair.activeBinId, pair.lbBinStep, swap_for_y
+        )
+
+        swap_fees = get_total_fee(params_fetched_from_rpc, pair.lbBinStep)
+        fees = get_fee_amount(amount_in, swap_fees)
+    except Exception as e:
+        print(f"An error occurred getting the amount out: {e}")
+
+    return amount_out, virtual_amount_without_slippage, fees
+
+
+def get_ordered_tokens(route, token_in, token_out):
+    tokens = [token_in]
+    current_token = token_in
+
+    for pair in route:
+        if current_token.tokenAddress == pair.tokenX.tokenAddress:
+            current_token = pair.tokenY
+        elif current_token.tokenAddress == pair.tokenY.tokenAddress:
+            current_token = pair.tokenX
+        else:
+            raise Exception("Invalid route")
+        tokens.append(current_token)
+
+    if tokens[-1].tokenAddress != token_out.tokenAddress:
+        raise Exception("Invalid route")
+
+    return tokens
+
+
+def get_amount_out_from_route(amount_in, route, token_in, token_out):
+    amounts = []
+    virtual_amounts_without_slippage = []
+    fees = []
+    amounts.append(amount_in)
+    virtual_amounts_without_slippage.append(amount_in)
+    tokens = get_ordered_tokens(route, token_in, token_out)
+
+    try:
+        for i in range(len(route)):
+            if amount_in > 0:
+                token_in = tokens[i]
+                token_out = tokens[i + 1]
+
+                print("pair : " + str(route[i].name))
+                print("tokenIn : " + token_in.name)
+                print("tokenOut : " + token_out.name)
+                print("amount in : " + str(amount_in))
+
+                amount_out, virtual_amount_without_slippage, fee = get_amount_out(
+                    route[i], amount_in, token_in, token_out
+                )
+                print("amount out : " + str(amount_out) + " " + str(token_out.name))
+                amount_in = amount_out
+                fees.append(fee)
+
+                amounts.append(amount_out)
+                virtual_amounts_without_slippage.append(virtual_amount_without_slippage)
+
+    except Exception as e:
+        print(f"An error occurred getting the amount out from the route: {e}")
+
+    return amounts, virtual_amounts_without_slippage, fees
+
+
+# Returns the reserves of a pair
+# returns reserveA, reserveB. The reserves of the pair in tokenA and tokenB
+def get_reserves(pair):
+    reserveA = pair.reserveX
+    reserveB = pair.reserveY
+    return reserveA, reserveB
+
+
+# Set the precision for Decimal numbers
+# getcontext().prec = 128
 
 
 # Returns the routes and parts for a given amount in
 # @param allRoutes All routes to get the routes and parts for
 # @param amountIn The amount of tokenIn to swap
 # @return routes, parts The routes and parts for the given amount in
-def get_routes_and_parts(
-    all_routes: List[Structs.Routes], amount_in: int
-) -> List[Structs.Routes]:
+def get_routes_and_parts(all_routes, amount_in):
     for i in range(NB_PART):
         best_index_route = 0
         best_index_pairs = 0
@@ -158,68 +229,6 @@ def get_routes_and_parts(
                         best_index_pairs = k
                         best_index_route = j
     pass
-
-
-def get_amount_out_from_route(amount_in: int, route, pairs):
-    length = len(route) - 1
-    amounts = []
-    virtual_amounts_without_slippage = []
-    fees = []
-
-    amounts[0] = amount_in
-    virtual_amounts_without_slippage[0] = amount_in
-
-    for i in range(length):
-        if amount_in > 0:
-            amount_out, virtual_amount_without_slippage, fee = get_amount_out(
-                pairs[i], amount_in, route[i], route[i + 1]
-            )
-            amount_in = amount_out
-            fees[i] = fee
-
-            amounts[i + 1] = amount_out
-            virtual_amounts_without_slippage[i + 1] = virtual_amount_without_slippage
-
-    return amounts, virtual_amounts_without_slippage, fees
-
-
-# takes in a Pool object for pair, int as amountIn, Token object for tokenOut - TODO : check if tokenIn not needed for swap
-def get_amount_out(pair, amount_in, token_in, token_out):
-    amount_out = None
-    virtual_amount_without_slippage = None
-    fees = None
-
-    swap_for_y = pair.tokenY == token_out
-    fees = 0.003e18
-    # 0.3% fees
-
-    try:
-        swap_amount_out = swap(
-            amount_in, swap_for_y, params_fetched_from_rpc, fetched_bin_step, now
-        )
-        amount_out = swap_amount_out
-
-        virtual_amount_without_slippage = get_v2_quote(
-            amount_in, pair.activeBinId, pair.lbBinStep, swap_for_y
-        )
-        swap_fees = get_total_fee(params_fetched_from_rpc, pair.lbBinStep)
-        fees = get_fee_amount(amount_in, swap_fees)
-    except Exception:
-        pass
-
-    return amount_out, virtual_amount_without_slippage, fees
-
-
-# Returns the reserves of a pair
-# returns reserveA, reserveB. The reserves of the pair in tokenA and tokenB
-def get_reserves(pair) -> Tuple[int, int]:
-    reserveA = pair.reserveX
-    reserveB = pair.reserveY
-    return reserveA, reserveB
-
-
-# Set the precision for Decimal numbers
-# getcontext().prec = 128
 
 
 # Calculate amountOut if amount was swapped with no slippage and no fees
@@ -396,7 +405,7 @@ def get_protocol_fees(fee_amount, params):
     return fee_amount * params.protocol_share // 10**18
 
 
-def get_next_non_empty_bin(swap_for_y, active_id):
+def get_next_non_empty_bin(swap_for_y, active_id, bins_dict):
     ids = list(bins_dict.keys())
     ids.sort()
 
@@ -413,10 +422,10 @@ def get_next_non_empty_bin(swap_for_y, active_id):
     return None
 
 
-def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
+def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
     amount_in, amount_out = amount_to_swap, 0
     id = params.active_id
-
+    bins_dict = get_bins(pair, id, RADIUS)
     params.update_references(block_timestamp)
 
     while amount_in > 0:
@@ -448,7 +457,7 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
         if amount_in == 0:
             break
 
-        id = get_next_non_empty_bin(swap_for_y, id)
+        id = get_next_non_empty_bin(swap_for_y, id, bins_dict)
 
     if amount_in > 0:
         raise Exception("Not enough liquidity")
@@ -464,14 +473,14 @@ def swap(amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
 # swapForYTest = True
 USDCAmountTest = 1 * 10**6  # 1 USDC (6 decimals)
 quoteTestUSDCToAVAX = get_v2_quote(
-    USDCAmountTest, fetched_active_id, fetched_bin_step, False
+    USDCAmountTest, AVAX_USDC.activeBinId, AVAX_USDC.lbBinStep, False
 )
-print("quote test 1 USDC to AVAX : " + str(quoteTestUSDCToAVAX / 10**18) + " AVAX")
+# # print("quote test 1 USDC to AVAX : " + str(quoteTestUSDCToAVAX / 10**18) + " AVAX")
 AVAXAmountTest = 1 * 10**18  # 1 AVAX (18 decimals)
 quoteTestAVAXToUSDC = get_v2_quote(
-    AVAXAmountTest, fetched_active_id, fetched_bin_step, True
+    AVAXAmountTest, AVAX_USDC.activeBinId, AVAX_USDC.lbBinStep, True
 )
-print("quote test 1 AVAX to USDC : " + str(quoteTestAVAXToUSDC / 10**6) + " USDC")
+# print("quote test 1 AVAX to USDC : " + str(quoteTestAVAXToUSDC / 10**6) + " USDC")
 
 # print(
 #    "Pool : "
@@ -485,16 +494,36 @@ print("quote test 1 AVAX to USDC : " + str(quoteTestAVAXToUSDC / 10**6) + " USDC
 # )
 
 # Swap x to y (1 AVAX.b to USDC)
-print(swap(1 * 10**8, True, params_fetched_from_rpc, fetched_bin_step, now))
+# print(swap(1 * 10**8, True, params_fetched_from_rpc, fetched_bin_step, now))
 
 
 # Swap y to x (30000 USDC to AVAX.b)
-print(swap(30000 * 10**6, False, params_fetched_from_rpc, fetched_bin_step, now))
+# print(swap(30000 * 10**6, False, params_fetched_from_rpc, fetched_bin_step, now))
 
 
 # Swap x to y (1 AVAX.b to USDC)
-# print(get_amount_out(AVAX_USDC, 1 * 10**8, AVAX_USDC.tokenY))
+# print(get_amount_out(AVAX_USDC, 1 * 10**8, AVAX_USDC.tokenX, AVAX_USDC.tokenY))
+# print(get_amount_out(AVAX_USDC, 1 * 10**18, AVAX_USDC.tokenX, AVAX_USDC.tokenY))
 
 
 # Get all routes
-# print(get_all_routes([AVAX_USDC.tokenX, AVAX_USDC.tokenY]))
+
+
+v2pools = Pool.get_pools(BARN_URL, CHAIN, "all", 100)
+
+routesAU = get_all_routes(v2pools, AVAX_USDC.tokenX, AVAX_USDC.tokenY)
+routesBU = get_all_routes(v2pools, BTC_B_USDC.tokenX, BTC_B_USDC.tokenY)
+
+
+tokenInAU = AVAX_USDC.tokenX
+tokenOutAU = AVAX_USDC.tokenY
+tokenInBU = BTC_B_USDC.tokenX
+tokenOutBU = BTC_B_USDC.tokenY
+
+for route in routesBU:
+    print("route : ")
+    for pair in route:
+        print(pair.tokenX.name + " - " + pair.tokenY.name)
+    print(" ")
+
+print(get_amount_out_from_route(1*10**8, routesBU[2], tokenInBU, tokenOutBU))

@@ -1,6 +1,5 @@
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
-import json
 from src.abi.lbpair_abi import LBPAIR_ABI
 
 NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
@@ -15,6 +14,7 @@ def get_params(node_url, pair_address):
     active_id = contract.functions.getActiveId().call()
     all_params = static_params + variable_params + [active_id]
     return Params(*all_params)
+
 
 def get_block_timestamp(node_url):
     web3 = Web3(Web3.HTTPProvider(node_url))
@@ -77,6 +77,7 @@ class Params:
         self.update_references(block_timestamp)
         self.update_volatility_accumulator(active_id)
 
-param = get_params(NODE_URL, ADDRESS)
-print(param.decay_period)
-print(get_block_timestamp(NODE_URL))
+
+# param = get_params(NODE_URL, ADDRESS)
+# print(param.decay_period)
+# print(get_block_timestamp(NODE_URL))
