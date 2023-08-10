@@ -97,7 +97,6 @@ def fetch_rpc_params(PAIR_ADDRESS):
     params_fetched_from_rpc = Params.get_params(
         web3, NODE_URL, BACKSTOP_NODE_URL, PAIR_ADDRESS
     )
-    print("Params fetched from RPC : " + str(params_fetched_from_rpc))
     now = params_fetched_from_rpc.time_of_last_update + 25
     return params_fetched_from_rpc, now
 
@@ -106,12 +105,9 @@ def get_amount_out(pair, amount_in, token_in, token_out):
     amount_out = None
     virtual_amount_without_slippage = None
     fees = None
-    print("yo")
-    print("pair address : " + pair.pairAddress)
     params_fetched_from_rpc, now = fetch_rpc_params(
         Web3.to_checksum_address(pair.pairAddress)
     )
-    print("yo")
 
     swap_for_y = pair.tokenY == token_out
     fees = 0.003e18
@@ -428,16 +424,18 @@ def get_next_non_empty_bin(swap_for_y, active_id, bins_dict):
 
 def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
     amount_in, amount_out = amount_to_swap, 0
-    id = params.active_id
+    id = params.active_id[0]
     bins_dict = get_bins(pair, id, RADIUS)
+    print(bins_dict)
     params.update_references(block_timestamp)
 
     while amount_in > 0:
         bin_reserves = bins_dict.get(id)
+        print("bin_reserves : " + str(bin_reserves))
         if bin_reserves is None:
             break
-        params.update_volatility_accumulator(id)
 
+        params.update_volatility_accumulator(id)
         amount_in_with_fees, amount_out_of_bin, fee_amount = get_amounts(
             bin_reserves, params, bin_step, swap_for_y, id, amount_in
         )
@@ -530,4 +528,4 @@ for route in routesBU:
         print(pair.tokenX.name + " - " + pair.tokenY.name)
     print(" ")
 
-print(get_amount_out_from_route(1 * 10**8, routesBU[2], tokenInBU, tokenOutBU))
+print(get_amount_out_from_route(1 * 10**6, routesBU[2], tokenInBU, tokenOutBU))

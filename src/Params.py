@@ -23,7 +23,6 @@ def get_params(web3, node_url, backstop_node_url, pair_address):
         )
 
         contract = web3.eth.contract(address=pair_address, abi=LBPAIR_ABI)
-        print(f"Connected to {node_url}")
 
         calls = [
             [pair_address, contract.encodeABI(fn_name="getStaticFeeParameters")],
@@ -33,6 +32,7 @@ def get_params(web3, node_url, backstop_node_url, pair_address):
         data = multicall.encodeABI(fn_name="aggregate", args=[calls])
 
         result = web3.eth.call({"to": MULTICALL_ADDRESS, "data": data})
+        print("yooo")
 
         (_, return_data) = abi.decode(["uint256", "bytes[]"], result)
 
@@ -45,12 +45,7 @@ def get_params(web3, node_url, backstop_node_url, pair_address):
         )
         active_id = abi.decode(["uint24"], return_data[2])
 
-        print(f"Static params: {static_params}")
-        print(f"Variable params: {variable_params}")
-        print(f"Active ID: {active_id}")
-
         all_params = static_params + variable_params + (active_id,)
-        print(f"All params: {all_params}")
 
         return Params(*all_params)
 
