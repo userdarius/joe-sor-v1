@@ -1,19 +1,62 @@
 from web3 import Web3
+from abi.lbpair_abi import LBPAIR_ABI
+from abi.multicall_abi import MULTICALL_ABI
 from web3.middleware import geth_poa_middleware
-from src.abi.lbpair_abi import LBPAIR_ABI
-
-NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
-ADDRESS = "0x4224f6F4C9280509724Db2DbAc314621e4465C29"
+from eth_abi import abi
 
 
-def get_params(node_url, pair_address):
-    web3 = Web3(Web3.HTTPProvider(node_url))
-    contract = web3.eth.contract(address=pair_address, abi=LBPAIR_ABI)
-    static_params = contract.functions.getStaticFeeParameters().call()
-    variable_params = contract.functions.getVariableFeeParameters().call()
-    active_id = contract.functions.getActiveId().call()
-    all_params = static_params + variable_params + [active_id]
-    return Params(*all_params)
+MULTICALL_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11"
+
+
+def get_params(web3, node_url, backstop_node_url, pair_address):
+    if not web3.is_connected():
+        print("Primary node not connected. Trying backstop node.")
+        web3 = Web3(Web3.HTTPProvider(backstop_node_url))
+
+        if not web3.is_connected():
+            print("Backstop node not connected either.")
+            return None
+
+    try:
+        multicall = web3.eth.contract(
+            address=Web3.to_checksum_address(MULTICALL_ADDRESS), abi=MULTICALL_ABI
+        )
+
+        contract = web3.eth.contract(address=pair_address, abi=LBPAIR_ABI)
+        print(f"Connected to {node_url}")
+
+        calls = [
+            [pair_address, contract.encodeABI(fn_name="getStaticFeeParameters")],
+            [pair_address, contract.encodeABI(fn_name="getVariableFeeParameters")],
+            [pair_address, contract.encodeABI(fn_name="getActiveId")],
+        ]
+        data = multicall.encodeABI(fn_name="aggregate", args=[calls])
+
+        result = web3.eth.call({"to": MULTICALL_ADDRESS, "data": data})
+
+        (_, return_data) = abi.decode(["uint256", "bytes[]"], result)
+
+        static_params = abi.decode(
+            ["uint16", "uint16", "uint16", "uint16", "uint24", "uint16", "uint24"],
+            return_data[0],
+        )
+        variable_params = abi.decode(
+            ["uint24", "uint24", "uint24", "uint40"], return_data[1]
+        )
+        active_id = abi.decode(["uint24"], return_data[2])
+
+        print(f"Static params: {static_params}")
+        print(f"Variable params: {variable_params}")
+        print(f"Active ID: {active_id}")
+
+        all_params = static_params + variable_params + (active_id,)
+        print(f"All params: {all_params}")
+
+        return Params(*all_params)
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
 
 
 def get_block_timestamp(node_url):

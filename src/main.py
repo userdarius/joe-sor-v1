@@ -14,6 +14,7 @@ from web3 import Web3
 
 BARN_URL = "https://barn.traderjoexyz.com"
 NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
+BACKSTOP_NODE_URL = "https://avalanche-c-chain.publicnode.com"
 CHAIN = "avalanche"
 RADIUS = 25
 PAIR_ADDRESS_WAVAX_USDC = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
@@ -24,6 +25,8 @@ MAX_UINT256 = (1 << 256) - 1
 
 AVAX_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS_WAVAX_USDC, "v2.1")
 BTC_B_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS_BTC_B_USDC, "v2.1")
+
+web3 = Web3(Web3.HTTPProvider(NODE_URL))
 
 
 def get_bins(pair, active_id, radius):
@@ -92,8 +95,9 @@ def get_all_routes(pairs, tokenIn, tokenOut):
 
 def fetch_rpc_params(PAIR_ADDRESS):
     params_fetched_from_rpc = Params.get_params(
-        NODE_URL, Web3.to_checksum_address(PAIR_ADDRESS)
+        web3, NODE_URL, BACKSTOP_NODE_URL, PAIR_ADDRESS
     )
+    print("Params fetched from RPC : " + str(params_fetched_from_rpc))
     now = params_fetched_from_rpc.time_of_last_update + 25
     return params_fetched_from_rpc, now
 
@@ -103,7 +107,7 @@ def get_amount_out(pair, amount_in, token_in, token_out):
     virtual_amount_without_slippage = None
     fees = None
     print("yo")
-    print(pair.pairAddress)
+    print("pair address : " + pair.pairAddress)
     params_fetched_from_rpc, now = fetch_rpc_params(
         Web3.to_checksum_address(pair.pairAddress)
     )
@@ -526,4 +530,4 @@ for route in routesBU:
         print(pair.tokenX.name + " - " + pair.tokenY.name)
     print(" ")
 
-print(get_amount_out_from_route(1*10**8, routesBU[2], tokenInBU, tokenOutBU))
+print(get_amount_out_from_route(1 * 10**8, routesBU[2], tokenInBU, tokenOutBU))
