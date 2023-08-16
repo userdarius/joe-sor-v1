@@ -1,4 +1,4 @@
-LBPAIR_ABI = [
+LBP_V2_1_PAIR_ABI = [
     {
         "inputs": [
             {

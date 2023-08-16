@@ -13,10 +13,10 @@ import Params
 from web3 import Web3
 
 BARN_URL = "https://barn.traderjoexyz.com"
-NODE_URL = "https://endpoints.omniatech.io/v1/avax/mainnet/public"
-BACKSTOP_NODE_URL = "https://avalanche-c-chain.publicnode.com"
+NODE_URL = "https://rpc.ankr.com/avalanche"
+BACKSTOP_NODE_URL = "https://api.avax.network/ext/bc/C/rpc"
 CHAIN = "avalanche"
-RADIUS = 25
+RADIUS = 50
 PAIR_ADDRESS_WAVAX_USDC = "0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1"
 PAIR_ADDRESS_BTC_B_USDC = "0x4224f6F4C9280509724Db2DbAc314621e4465C29"
 NB_PART = 5
@@ -26,12 +26,8 @@ MAX_UINT256 = (1 << 256) - 1
 AVAX_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS_WAVAX_USDC, "v2.1")
 BTC_B_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS_BTC_B_USDC, "v2.1")
 
-web3 = Web3(Web3.HTTPProvider(NODE_URL))
-
 
 def get_bins(pair, active_id, radius):
-    print("active_id : " + str(active_id))
-    print("radius : " + str(radius))
     bins = Bin.get_bins(BARN_URL, CHAIN, pair.pairAddress, radius, active_id)
     decimalX = pair.tokenX.decimals
     decimalY = pair.tokenY.decimals
@@ -52,7 +48,7 @@ def find_best_path_from_amount_in_multi_path(
 
 
 def isIn(pair, token):
-    return pair.tokenX.name == token.name or pair.tokenY.name == token.name
+    return pair.tokenX.tokenAddress == token.tokenAddress or pair.tokenY.tokenAddress == token.tokenAddress
 
 
 def get_all_routes(pairs, tokenIn, tokenOut):
@@ -93,28 +89,23 @@ def get_all_routes(pairs, tokenIn, tokenOut):
     return routes
 
 
-def fetch_rpc_params(PAIR_ADDRESS):
-    params_fetched_from_rpc = Params.get_params(
-        web3, NODE_URL, BACKSTOP_NODE_URL, PAIR_ADDRESS
-    )
-    now = params_fetched_from_rpc.time_of_last_update + 25
-    return params_fetched_from_rpc, now
+def fetch_rpc_params(route):
+    web3 = Web3(Web3.HTTPProvider(NODE_URL))
+    params_fetched_from_rpc = Params.get_params(web3, BACKSTOP_NODE_URL, route)
+    return params_fetched_from_rpc
 
 
-def get_amount_out(pair, amount_in, token_in, token_out):
+def get_amount_out(pair, amount_in, token_in, token_out, pair_params, when):
     amount_out = None
     virtual_amount_without_slippage = None
     fees = None
-    params_fetched_from_rpc, now = fetch_rpc_params(
-        Web3.to_checksum_address(pair.pairAddress)
-    )
 
     swap_for_y = pair.tokenY == token_out
     fees = 0.003e18
-    # 0.3% fees
+    # 0.3% feesh
     try:
         swap_amount_out = swap(
-            pair, amount_in, swap_for_y, params_fetched_from_rpc, pair.lbBinStep, now
+            pair, amount_in, swap_for_y, pair_params, pair.lbBinStep, when
         )
         amount_out = swap_amount_out
 
@@ -122,7 +113,7 @@ def get_amount_out(pair, amount_in, token_in, token_out):
             amount_in, pair.activeBinId, pair.lbBinStep, swap_for_y
         )
 
-        swap_fees = get_total_fee(params_fetched_from_rpc, pair.lbBinStep)
+        swap_fees = get_total_fee(pair_params, pair.lbBinStep)
         fees = get_fee_amount(amount_in, swap_fees)
     except Exception as e:
         print(f"An error occurred getting the amount out: {e}")
@@ -131,20 +122,44 @@ def get_amount_out(pair, amount_in, token_in, token_out):
 
 
 def get_ordered_tokens(route, token_in, token_out):
+    if not all(hasattr(pair, "tokenX") and hasattr(pair, "tokenY") for pair in route):
+        raise Exception(
+            "Invalid route structure. Pairs must have 'tokenX' and 'tokenY' attributes."
+        )
+
     tokens = [token_in]
     current_token = token_in
+    seen_tokens = set()
 
     for pair in route:
+        if not hasattr(current_token, "tokenAddress"):
+            raise AttributeError("Current token lacks 'tokenAddress' attribute.")
+
         if current_token.tokenAddress == pair.tokenX.tokenAddress:
             current_token = pair.tokenY
         elif current_token.tokenAddress == pair.tokenY.tokenAddress:
             current_token = pair.tokenX
         else:
-            raise Exception("Invalid route")
+            print("current token address : " + current_token.tokenAddress + " " + current_token.name)
+            print("pair tokenX address : " + pair.tokenX.tokenAddress + " " + pair.tokenX.name)
+            print("pair tokenY address : " + pair.tokenY.tokenAddress + " " + pair.tokenY.name)
+            print("expected pair : " + pair.name)
+            raise Exception(
+                f"Invalid route: Token mismatch at {current_token.tokenAddress}"
+            )
+
+        if current_token.tokenAddress in seen_tokens:
+            raise Exception(
+                f"Cyclic route detected at token {current_token.tokenAddress}"
+            )
+        seen_tokens.add(current_token.tokenAddress)
+
         tokens.append(current_token)
 
     if tokens[-1].tokenAddress != token_out.tokenAddress:
-        raise Exception("Invalid route")
+        raise Exception(
+            f"Invalid route: Expected to end at {token_out.tokenAddress}, but ended at {tokens[-1].tokenAddress}"
+        )
 
     return tokens
 
@@ -156,6 +171,7 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
     amounts.append(amount_in)
     virtual_amounts_without_slippage.append(amount_in)
     tokens = get_ordered_tokens(route, token_in, token_out)
+    route_params = fetch_rpc_params(route)
 
     try:
         for i in range(len(route)):
@@ -168,8 +184,11 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
                 print("tokenOut : " + token_out.name)
                 print("amount in : " + str(amount_in))
 
+                now = route_params[i].time_of_last_update + 25
+                pair_params = route_params[i]
+
                 amount_out, virtual_amount_without_slippage, fee = get_amount_out(
-                    route[i], amount_in, token_in, token_out
+                    route[i], amount_in, token_in, token_out, pair_params, now
                 )
                 print("amount out : " + str(amount_out) + " " + str(token_out.name))
                 amount_in = amount_out
@@ -177,6 +196,7 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
 
                 amounts.append(amount_out)
                 virtual_amounts_without_slippage.append(virtual_amount_without_slippage)
+                print("pair passed")
 
     except Exception as e:
         print(f"An error occurred getting the amount out from the route: {e}")
@@ -424,14 +444,12 @@ def get_next_non_empty_bin(swap_for_y, active_id, bins_dict):
 
 def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
     amount_in, amount_out = amount_to_swap, 0
-    id = params.active_id[0]
+    id = params.active_id
     bins_dict = get_bins(pair, id, RADIUS)
-    print(bins_dict)
     params.update_references(block_timestamp)
 
     while amount_in > 0:
         bin_reserves = bins_dict.get(id)
-        print("bin_reserves : " + str(bin_reserves))
         if bin_reserves is None:
             break
 
@@ -517,15 +535,17 @@ routesAU = get_all_routes(v2pools, AVAX_USDC.tokenX, AVAX_USDC.tokenY)
 routesBU = get_all_routes(v2pools, BTC_B_USDC.tokenX, BTC_B_USDC.tokenY)
 
 
-tokenInAU = AVAX_USDC.tokenX
-tokenOutAU = AVAX_USDC.tokenY
-tokenInBU = BTC_B_USDC.tokenX
-tokenOutBU = BTC_B_USDC.tokenY
+tokenInAU = AVAX_USDC.tokenX  # AVAX
+tokenOutAU = AVAX_USDC.tokenY  # USDC
+tokenInBU = BTC_B_USDC.tokenX  # BTC.b
+tokenOutBU = BTC_B_USDC.tokenY  # USDC
 
 for route in routesBU:
     print("route : ")
     for pair in route:
         print(pair.tokenX.name + " - " + pair.tokenY.name)
+        print(pair.version)
+    print(get_amount_out_from_route(1 * 10**6, route, tokenInBU, tokenOutBU))
+    
     print(" ")
-
-print(get_amount_out_from_route(1 * 10**6, routesBU[2], tokenInBU, tokenOutBU))
+# print(get_amount_out_from_route(1 * 10**18, routesAU[1], tokenInAU, tokenOutAU))
