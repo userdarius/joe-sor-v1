@@ -99,9 +99,7 @@ def process_v2_1_data(return_data, start_index):
         ["uint24", "uint24", "uint24", "uint40"], return_data[start_index + 1]
     )
     active_id = abi.decode(["uint24"], return_data[start_index + 2])
-    print("static_params : " + str(static_params))
-    print("variable_params : " + str(variable_params))
-    print("active_id : " + str(active_id))
+
     all_params = static_params + variable_params + active_id
     params_instance = Params(*all_params)
     pairs_params.append(params_instance)
@@ -142,14 +140,11 @@ def process_v2_0_data(return_data, start_index):
         ],
         return_data[start_index],
     )
-    # print("fee_params : " + str(fee_params))
 
     reservesX, reservesY, active_id = abi.decode(
         ["uint256", "uint256", "uint256"], return_data[start_index + 1]
     )
-    print("reservesX : " + str(reservesX))
-    print("reservesY : " + str(reservesY))
-    print("active_id : " + str(active_id))
+
     all_params = (
         baseFactor,
         filterPeriod,

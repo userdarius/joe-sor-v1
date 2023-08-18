@@ -44,11 +44,14 @@ def find_best_path_from_amount_in_multi_path(
     swap_routes, amount_in, token_in, token_out
 ):
     all_routes = get_all_routes(swap_routes, token_in, token_out)
-    return get_routes_and_parts(all_routes, amount_in)
+    return get_routes_and_parts(all_routes, amount_in, token_in, token_out)
 
 
 def isIn(pair, token):
-    return pair.tokenX.tokenAddress == token.tokenAddress or pair.tokenY.tokenAddress == token.tokenAddress
+    return (
+        pair.tokenX.tokenAddress == token.tokenAddress
+        or pair.tokenY.tokenAddress == token.tokenAddress
+    )
 
 
 def get_all_routes(pairs, tokenIn, tokenOut):
@@ -112,7 +115,6 @@ def get_amount_out(pair, amount_in, token_in, token_out, pair_params, when):
         virtual_amount_without_slippage = get_v2_quote(
             amount_in, pair.activeBinId, pair.lbBinStep, swap_for_y
         )
-
         swap_fees = get_total_fee(pair_params, pair.lbBinStep)
         fees = get_fee_amount(amount_in, swap_fees)
     except Exception as e:
@@ -140,9 +142,24 @@ def get_ordered_tokens(route, token_in, token_out):
         elif current_token.tokenAddress == pair.tokenY.tokenAddress:
             current_token = pair.tokenX
         else:
-            print("current token address : " + current_token.tokenAddress + " " + current_token.name)
-            print("pair tokenX address : " + pair.tokenX.tokenAddress + " " + pair.tokenX.name)
-            print("pair tokenY address : " + pair.tokenY.tokenAddress + " " + pair.tokenY.name)
+            print(
+                "current token address : "
+                + current_token.tokenAddress
+                + " "
+                + current_token.name
+            )
+            print(
+                "pair tokenX address : "
+                + pair.tokenX.tokenAddress
+                + " "
+                + pair.tokenX.name
+            )
+            print(
+                "pair tokenY address : "
+                + pair.tokenY.tokenAddress
+                + " "
+                + pair.tokenY.name
+            )
             print("expected pair : " + pair.name)
             raise Exception(
                 f"Invalid route: Token mismatch at {current_token.tokenAddress}"
@@ -179,10 +196,10 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
                 token_in = tokens[i]
                 token_out = tokens[i + 1]
 
-                print("pair : " + str(route[i].name))
-                print("tokenIn : " + token_in.name)
-                print("tokenOut : " + token_out.name)
-                print("amount in : " + str(amount_in))
+                # print("pair : " + str(route[i].name))
+                # print("tokenIn : " + token_in.name)
+                # print("tokenOut : " + token_out.name)
+                # print("amount in : " + str(amount_in))
 
                 now = route_params[i].time_of_last_update + 25
                 pair_params = route_params[i]
@@ -190,13 +207,14 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
                 amount_out, virtual_amount_without_slippage, fee = get_amount_out(
                     route[i], amount_in, token_in, token_out, pair_params, now
                 )
-                print("amount out : " + str(amount_out) + " " + str(token_out.name))
+                # print("amount out : " + str(amount_out) + " " + str(token_out.name))
                 amount_in = amount_out
                 fees.append(fee)
+                # print(fees)
+                # print("base factor : " + str(pair_params.base_factor))
 
                 amounts.append(amount_out)
                 virtual_amounts_without_slippage.append(virtual_amount_without_slippage)
-                print("pair passed")
 
     except Exception as e:
         print(f"An error occurred getting the amount out from the route: {e}")
@@ -216,39 +234,58 @@ def get_reserves(pair):
 # getcontext().prec = 128
 
 
-# Returns the routes and parts for a given amount in
-# @param allRoutes All routes to get the routes and parts for
-# @param amountIn The amount of tokenIn to swap
-# @return routes, parts The routes and parts for the given amount in
-def get_routes_and_parts(all_routes, amount_in):
+def get_routes_and_parts(all_routes, amount_in, initial_token_in, initial_token_out):
+    route_part = 0
+    route_amount = 0
+    best_routes = []  # List to store the best routes for each part
+
     for i in range(NB_PART):
-        best_index_route = 0
-        best_index_pairs = 0
+        best_index_route = -1
+        best_index_pairs = -1
         best_amount = 0
 
         for j in range(len(all_routes)):
-            routes = all_routes[j].routes
+            route = all_routes[j]
+            for k in range(len(route)):
+                print("amount in : " + str(amount_in))
 
-            for k in range(len(routes)):
-                route = routes[k]
                 (
                     amounts,
                     virtual_amounts_without_slippage,
                     fees,
                 ) = get_amount_out_from_route(
-                    amount_in * route.part + 1 / NB_PART,
-                    all_routes[j].tokens,
-                    route.pairs,
+                    int((amount_in * (i + 1)) // NB_PART),
+                    route,
+                    initial_token_in,
+                    initial_token_out,
                 )
                 amount_out = amounts[len(amounts) - 1]
+                print("amount out : " + str(amount_out))
+                if amount_out != None:
+                    if amount_out > route_amount:
+                        amount_out = amount_out - route_amount
+                        if amount_out > best_amount:
+                            best_amount = amount_out
+                            best_index_pairs = k
+                            best_index_route = j
+                else:
+                    print("amount out is None")
 
-                if amount_out > route.amount:
-                    amount_out = amount_out - route.amount
-                    if amount_out > best_amount:
-                        best_amount = amount_out
-                        best_index_pairs = k
-                        best_index_route = j
-    pass
+        # Store the best route and amount for this part if they exist
+        if best_index_route != -1 and best_index_pairs != -1:
+            best_pair = all_routes[best_index_route][best_index_pairs]
+            best_routes.append(
+                {
+                    "route_index": best_index_route,
+                    "pair_index": best_index_pairs,
+                    "pair": best_pair,
+                    "amount": best_amount,
+                }
+            )
+            route_part += 1
+            route_amount = best_amount
+
+    return best_routes
 
 
 # Calculate amountOut if amount was swapped with no slippage and no fees
@@ -447,7 +484,6 @@ def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
     id = params.active_id
     bins_dict = get_bins(pair, id, RADIUS)
     params.update_references(block_timestamp)
-
     while amount_in > 0:
         bin_reserves = bins_dict.get(id)
         if bin_reserves is None:
@@ -457,6 +493,7 @@ def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
         amount_in_with_fees, amount_out_of_bin, fee_amount = get_amounts(
             bin_reserves, params, bin_step, swap_for_y, id, amount_in
         )
+
         amount_in -= amount_in_with_fees
         amount_out += amount_out_of_bin
 
@@ -540,12 +577,12 @@ tokenOutAU = AVAX_USDC.tokenY  # USDC
 tokenInBU = BTC_B_USDC.tokenX  # BTC.b
 tokenOutBU = BTC_B_USDC.tokenY  # USDC
 
-for route in routesBU:
-    print("route : ")
-    for pair in route:
-        print(pair.tokenX.name + " - " + pair.tokenY.name)
-        print(pair.version)
-    print(get_amount_out_from_route(1 * 10**6, route, tokenInBU, tokenOutBU))
-    
-    print(" ")
+#for route in routesAU:
+#    print("route : ")
+#    for pair in route:
+#        print(pair.tokenX.name + " - " + pair.tokenY.name)
+    # print(get_amount_out_from_route(2 * 10**17, route, tokenInAU, tokenOutAU))
+
+#    print(" ")
 # print(get_amount_out_from_route(1 * 10**18, routesAU[1], tokenInAU, tokenOutAU))
+print(get_routes_and_parts(routesAU, 1 * 10**18, tokenInAU, tokenOutAU))
