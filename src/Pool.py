@@ -1,6 +1,6 @@
 import requests
 import json
-from Token import Token
+from src.Token import Token
 
 
 class Pool:

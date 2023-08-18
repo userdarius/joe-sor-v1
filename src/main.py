@@ -1,15 +1,7 @@
-import Bin
-import Pool
-import Token
-import Quote
-from typing import Tuple
-import Structs
-from decimal import Decimal, getcontext
-from typing import List, Union
-from constants import Constants
+from src import Bin 
+from src import Pool
 from math import ceil
-from Structs import Routes, Route
-import Params
+from src import Params
 from web3 import Web3
 
 BARN_URL = "https://barn.traderjoexyz.com"
@@ -254,7 +246,7 @@ def get_routes_and_parts(all_routes, amount_in, initial_token_in, initial_token_
                     virtual_amounts_without_slippage,
                     fees,
                 ) = get_amount_out_from_route(
-                    int((amount_in * (i + 1)) // NB_PART),
+                    (amount_in * (i + 1)) // NB_PART,
                     route,
                     initial_token_in,
                     initial_token_out,
@@ -269,7 +261,7 @@ def get_routes_and_parts(all_routes, amount_in, initial_token_in, initial_token_
                             best_index_pairs = k
                             best_index_route = j
                 else:
-                    print("amount out is None")
+                    print("amount out is None, skipping pair")
 
         # Store the best route and amount for this part if they exist
         if best_index_route != -1 and best_index_pairs != -1:
@@ -524,48 +516,6 @@ def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
     return amount_out
 
 
-# poolTest = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")
-# idTest = poolTest.activeBinId
-# binStepTest = poolTest.lbBinStep
-# swapForYTest = True
-USDCAmountTest = 1 * 10**6  # 1 USDC (6 decimals)
-quoteTestUSDCToAVAX = get_v2_quote(
-    USDCAmountTest, AVAX_USDC.activeBinId, AVAX_USDC.lbBinStep, False
-)
-# # print("quote test 1 USDC to AVAX : " + str(quoteTestUSDCToAVAX / 10**18) + " AVAX")
-AVAXAmountTest = 1 * 10**18  # 1 AVAX (18 decimals)
-quoteTestAVAXToUSDC = get_v2_quote(
-    AVAXAmountTest, AVAX_USDC.activeBinId, AVAX_USDC.lbBinStep, True
-)
-# print("quote test 1 AVAX to USDC : " + str(quoteTestAVAXToUSDC / 10**6) + " USDC")
-
-# print(
-#    "Pool : "
-#    + str(pools[0].name)
-#    + " - (reserveA, reserveB) : "
-#    + str(get_reserves(pools[0]))
-# )
-# print(
-#    "reserveA and reserveB for the AVAX.b / USDC pool on avalanche : "
-#    + str(get_reserves(Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS, "v2.0")))
-# )
-
-# Swap x to y (1 AVAX.b to USDC)
-# print(swap(1 * 10**8, True, params_fetched_from_rpc, fetched_bin_step, now))
-
-
-# Swap y to x (30000 USDC to AVAX.b)
-# print(swap(30000 * 10**6, False, params_fetched_from_rpc, fetched_bin_step, now))
-
-
-# Swap x to y (1 AVAX.b to USDC)
-# print(get_amount_out(AVAX_USDC, 1 * 10**8, AVAX_USDC.tokenX, AVAX_USDC.tokenY))
-# print(get_amount_out(AVAX_USDC, 1 * 10**18, AVAX_USDC.tokenX, AVAX_USDC.tokenY))
-
-
-# Get all routes
-
-
 v2pools = Pool.get_pools(BARN_URL, CHAIN, "all", 100)
 
 routesAU = get_all_routes(v2pools, AVAX_USDC.tokenX, AVAX_USDC.tokenY)
@@ -577,12 +527,18 @@ tokenOutAU = AVAX_USDC.tokenY  # USDC
 tokenInBU = BTC_B_USDC.tokenX  # BTC.b
 tokenOutBU = BTC_B_USDC.tokenY  # USDC
 
-#for route in routesAU:
-#    print("route : ")
-#    for pair in route:
-#        print(pair.tokenX.name + " - " + pair.tokenY.name)
+for i, route in enumerate(routesAU):
+    print(f"route {i} : ")
+    for pair in route:
+        print(pair.name + " " + pair.version)
     # print(get_amount_out_from_route(2 * 10**17, route, tokenInAU, tokenOutAU))
+    print(" ")
 
-#    print(" ")
-# print(get_amount_out_from_route(1 * 10**18, routesAU[1], tokenInAU, tokenOutAU))
-print(get_routes_and_parts(routesAU, 1 * 10**18, tokenInAU, tokenOutAU))
+routes_result = get_routes_and_parts(routesAU, 1 * 10**18, tokenInAU, tokenOutAU)
+
+for route_info in routes_result:
+    print(f"Route Index: {route_info['route_index']}")
+    print(f"Pair Index: {route_info['pair_index']}")
+    print(f"Pair: {route_info['pair'].name}")
+    print(f"Amount: {route_info['amount']}")
+    print("-" * 50)  # print a separator for clarity
