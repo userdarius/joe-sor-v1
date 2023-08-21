@@ -27,6 +27,17 @@ class Token:
         self.volume = volume
         self.pctChange = pctChange
 
+    def __eq__(self, other):
+        if isinstance(other, Token):
+            return self.tokenAddress == other.tokenAddress
+        return False
+
+    def __hash__(self):
+        return hash(self.tokenAddress)
+
+    def __repr__(self):
+        return self.name
+
 
 def get_tokens(url: any, chain: any):
     url = f"{url}/v1/tokens/{chain}"

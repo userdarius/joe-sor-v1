@@ -78,6 +78,25 @@ class Pool:
         self.feesNative = feesNative
         self.protocolSharePct = protocolSharePct
 
+    def __eq__(self, other):
+        if isinstance(other, Pool):
+            return self.pairAddress == other.pairAddress
+        return False
+
+    def __hash__(self):
+        return hash(self.pairAddress)
+
+    def contains(self, token: Token) -> bool:
+        return self.tokenX == token or self.tokenY == token
+
+    def other(self, token: Token) -> Token:
+        if token == self.tokenX:
+            return self.tokenY
+        elif token == self.tokenY:
+            return self.tokenX
+        else:
+            raise ValueError(f"Token {token.name} not in this pair!")
+
 
 def get_pools(url: any, chain: any, version: any, size: int):
     url = f"{url}/v1/pools/{chain}/"

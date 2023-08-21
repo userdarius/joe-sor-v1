@@ -6,11 +6,13 @@ from typing import Tuple
 import Structs
 from decimal import Decimal, getcontext
 from typing import List, Union
-from constants import Constants
+import Constants
 from math import ceil
 from Structs import Routes, Route
 import Params
 from web3 import Web3
+
+from Graph import Graph
 
 BARN_URL = "https://barn.traderjoexyz.com"
 NODE_URL = "https://rpc.ankr.com/avalanche"
@@ -531,21 +533,36 @@ quoteTestAVAXToUSDC = get_v2_quote(
 
 v2pools = Pool.get_pools(BARN_URL, CHAIN, "all", 100)
 
-routesAU = get_all_routes(v2pools, AVAX_USDC.tokenX, AVAX_USDC.tokenY)
-routesBU = get_all_routes(v2pools, BTC_B_USDC.tokenX, BTC_B_USDC.tokenY)
+graph = Graph()
+
+for pool in v2pools:
+    graph.add_pair(pool)
+
+tokenInBU = BTC_B_USDC.tokenY  # USDC
+tokenOutBU = BTC_B_USDC.tokenX  # BTC.b
+
+routes = graph.find_paths(tokenInBU.tokenAddress, tokenOutBU.tokenAddress)
+
+for path in routes:
+    print(" -> ".join([f"({p.tokenX}, {p.tokenY}), {p.name}-{p.lbBinStep}" for p in path]))
+    print(get_amount_out_from_route(1 * 10**6, path, tokenInBU, tokenOutBU))
 
 
-tokenInAU = AVAX_USDC.tokenX  # AVAX
-tokenOutAU = AVAX_USDC.tokenY  # USDC
-tokenInBU = BTC_B_USDC.tokenX  # BTC.b
-tokenOutBU = BTC_B_USDC.tokenY  # USDC
 
-for route in routesBU:
-    print("route : ")
-    for pair in route:
-        print(pair.tokenX.name + " - " + pair.tokenY.name)
-        print(pair.version)
-    print(get_amount_out_from_route(1 * 10**6, route, tokenInBU, tokenOutBU))
-    
-    print(" ")
+# routesAU = get_all_routes(v2pools, AVAX_USDC.tokenX, AVAX_USDC.tokenY)
+# routesBU = get_all_routes(v2pools, tokenInBU, tokenOutBU)
+#
+#
+# tokenInAU = AVAX_USDC.tokenX  # AVAX
+# tokenOutAU = AVAX_USDC.tokenY  # USDC
+#
+#
+# for route in routesBU:
+#     print("route : ")
+#     for pair in route:
+#         print(pair.tokenX.name + " - " + pair.tokenY.name)
+#         print(pair.version)
+#     print(get_amount_out_from_route(1 * 10**6, route, tokenInBU, tokenOutBU))
+#
+#     print(" ")
 # print(get_amount_out_from_route(1 * 10**18, routesAU[1], tokenInAU, tokenOutAU))
