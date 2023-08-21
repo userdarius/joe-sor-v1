@@ -541,7 +541,7 @@ for pool in v2pools:
 tokenInBU = BTC_B_USDC.tokenY  # USDC
 tokenOutBU = BTC_B_USDC.tokenX  # BTC.b
 
-routes = graph.find_paths(tokenInBU.tokenAddress, tokenOutBU.tokenAddress)
+routes = graph.find_path_pairs(tokenInBU.tokenAddress, tokenOutBU.tokenAddress)
 
 for path in routes:
     print(" -> ".join([f"({p.tokenX}, {p.tokenY}), {p.name}-{p.lbBinStep}" for p in path]))
