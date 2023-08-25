@@ -1,7 +1,7 @@
 import pytest
 import sys
 sys.path.append('/Users/darius/Code/Trader Joe/joe-sor-v1/')
-from src import main
+from src import main, Pool
 
 BARN_URL = "https://barn.traderjoexyz.com"
 NODE_URL = "https://rpc.ankr.com/avalanche"
@@ -36,6 +36,22 @@ for i, route in enumerate(routesAU):
     print(" ")
 
 routes_result = main.get_routes_and_parts(routesAU, 1 * 10**18, tokenInAU, tokenOutAU)
+
+for route_info in routes_result:
+    print(f"Route Index: {route_info['route_index']}")
+    print(f"Pair Index: {route_info['pair_index']}")
+    print(f"Pair: {route_info['pair'].name}")
+    print(f"Amount: {route_info['amount']}")
+    print("-" * 50)  # print a separator for clarity
+
+# BTC.b to USDC
+for i, route in enumerate(routesBU):
+    print(f"route {i} : ")
+    for pair in route:
+        print(pair.name + " " + pair.version)
+    print(" ")
+
+routes_result = get_routes_and_parts(routesBU, 1 * 10**6, tokenInBU, tokenOutBU)
 
 for route_info in routes_result:
     print(f"Route Index: {route_info['route_index']}")
