@@ -1,6 +1,6 @@
 import requests
 import json
-from src.Token import Token
+from Token import Token
 
 
 class Pool:
@@ -78,10 +78,38 @@ class Pool:
         self.feesNative = feesNative
         self.protocolSharePct = protocolSharePct
 
-
 def get_pools(url: any, chain: any, version: any, size: int):
+    page = 1
+    all_pools = []
+
+    while True:
+        url_with_page = f"{url}/v1/pools/{chain}/"
+        parameters = {
+            "version": version,
+            "pageSize": size,
+            "excludeLowVolumePools": True,
+            "pageNum": page
+        }
+
+        response = requests.get(url_with_page, parameters)
+        if response.status_code == 200:
+            pool_data = json.loads(response.text)
+            
+            # Check if the size of returned pools is less than 100 to break the loop
+            if len(pool_data) < 100:
+                all_pools.extend([Pool(**pool) for pool in pool_data])
+                break
+
+            all_pools.extend([Pool(**pool) for pool in pool_data])
+            page += 1  # increment the page number
+        else:
+            break  # If there's an error, exit the loop
+
+    return all_pools
+
+def get_pools_old(url: any, chain: any, version: any, size: int):
     url = f"{url}/v1/pools/{chain}/"
-    parameter = {"version": version, "pageSize": size}
+    parameter = {"version": version, "pageSize": size, "excludeLowVolumePools": False}
     response = requests.get(url, parameter)
     if response.status_code == 200:
         pool_data = json.loads(response.text)

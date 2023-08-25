@@ -1,8 +1,9 @@
-from src import Bin 
-from src import Pool
+import Bin
+import Pool
+import Params
 from math import ceil
-from src import Params
 from web3 import Web3
+from collections import defaultdict, deque
 
 BARN_URL = "https://barn.traderjoexyz.com"
 NODE_URL = "https://rpc.ankr.com/avalanche"
@@ -21,22 +22,45 @@ BTC_B_USDC = Pool.get_pool(BARN_URL, CHAIN, PAIR_ADDRESS_BTC_B_USDC, "v2.1")
 
 def get_bins(pair, active_id, radius):
     bins = Bin.get_bins(BARN_URL, CHAIN, pair.pairAddress, radius, active_id)
-    decimalX = pair.tokenX.decimals
-    decimalY = pair.tokenY.decimals
+    decimalX = 10**pair.tokenX.decimals
+    decimalY = 10**pair.tokenY.decimals
+
     bins_dict = {}
     for bin in bins:
         bins_dict[bin.binId] = [
-            int(bin.reserveX * 10**decimalX),
-            int(bin.reserveY * 10**decimalY),
+            int(bin.reserveX * decimalX),
+            int(bin.reserveY * decimalY),
         ]
     return bins_dict
+
+
+# def find_best_path_from_amount_out_multi_path(
+#     swap_routes, amount_out, token_in, token_out
+# ):
+#     all_routes = get_all_routes(swap_routes, token_in, token_out)
+#     return get_routes_and_parts(all_routes, amount_out, token_in, token_out)
+
+def path_generator(best_routes):
+    for route in best_routes:
+        yield route_info["pair"]
 
 
 def find_best_path_from_amount_in_multi_path(
     swap_routes, amount_in, token_in, token_out
 ):
     all_routes = get_all_routes(swap_routes, token_in, token_out)
+    #filtered_routes = filter_low_liquidity_routes(all_routes, amount_in, token_in)
     return get_routes_and_parts(all_routes, amount_in, token_in, token_out)
+
+def filter_low_liquidity_routes(routes, amount_in, token_in):
+    filtered_routes = []
+    for route in routes:
+        current_route_amount_out = get_amount_out_from_route(
+            amount_in, route, token_in, route[-1].tokenY
+        )
+        if current_route_amount_out > 0:
+            filtered_routes.append(route)
+    return filtered_routes
 
 
 def isIn(pair, token):
@@ -90,6 +114,31 @@ def fetch_rpc_params(route):
     return params_fetched_from_rpc
 
 
+# def get_amount_in(pair, amount_out, token_in, token_out, pair_params, when):
+#     amount_in = None
+#     virtual_amount_without_slippage = None
+#     fees = None
+
+#     swap_for_y = pair.tokenY == token_in
+#     fees = 0.003e18
+#     # 0.3% feesh
+#     try:
+#         swap_amount_in = swap_inversed(
+#             pair, amount_out, swap_for_y, pair_params, pair.lbBinStep, when
+#         )
+#         amount_in = swap_amount_in
+
+#         virtual_amount_without_slippage = get_v2_quote(
+#             amount_out, pair.activeBinId, pair.lbBinStep, swap_for_y
+#         )
+#         swap_fees = get_total_fee(pair_params, pair.lbBinStep)
+#         fees = get_fee_amount(amount_out, swap_fees)
+#     except Exception as error:
+#         print(f"An error occurred getting the amount in: {error}")
+
+#     return amount_in, virtual_amount_without_slippage, fees
+
+
 def get_amount_out(pair, amount_in, token_in, token_out, pair_params, when):
     amount_out = None
     virtual_amount_without_slippage = None
@@ -109,8 +158,8 @@ def get_amount_out(pair, amount_in, token_in, token_out, pair_params, when):
         )
         swap_fees = get_total_fee(pair_params, pair.lbBinStep)
         fees = get_fee_amount(amount_in, swap_fees)
-    except Exception as e:
-        print(f"An error occurred getting the amount out: {e}")
+    except Exception as error:
+        print(f"An error occurred getting the amount out: {error}")
 
     return amount_out, virtual_amount_without_slippage, fees
 
@@ -183,7 +232,7 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
     route_params = fetch_rpc_params(route)
 
     try:
-        for i in range(len(route)):
+        for i, _ in enumerate(route):
             if amount_in > 0:
                 token_in = tokens[i]
                 token_out = tokens[i + 1]
@@ -191,7 +240,7 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
                 # print("pair : " + str(route[i].name))
                 # print("tokenIn : " + token_in.name)
                 # print("tokenOut : " + token_out.name)
-                # print("amount in : " + str(amount_in))
+                # print("amount in : " + str(amount_in) + " " + str(token_in.name))
 
                 now = route_params[i].time_of_last_update + 25
                 pair_params = route_params[i]
@@ -208,8 +257,8 @@ def get_amount_out_from_route(amount_in, route, token_in, token_out):
                 amounts.append(amount_out)
                 virtual_amounts_without_slippage.append(virtual_amount_without_slippage)
 
-    except Exception as e:
-        print(f"An error occurred getting the amount out from the route: {e}")
+    except Exception as error:
+        print(f"An error occurred getting the amount out from the route: {error}")
 
     return amounts, virtual_amounts_without_slippage, fees
 
@@ -232,45 +281,46 @@ def get_routes_and_parts(all_routes, amount_in, initial_token_in, initial_token_
     best_routes = []  # List to store the best routes for each part
 
     for i in range(NB_PART):
-        best_index_route = -1
-        best_index_pairs = -1
+        print("\npart : " + str(i))
+        best_index_route = None
+        best_index_pairs = None
         best_amount = 0
 
-        for j in range(len(all_routes)):
-            route = all_routes[j]
-            for k in range(len(route)):
-                print("amount in : " + str(amount_in))
+        for j, route in enumerate(all_routes):
+            print("\n")
+            for pair in route:
+                print(pair.name + " " + str(pair.version) + " " + str(pair.pairAddress))
 
-                (
-                    amounts,
-                    virtual_amounts_without_slippage,
-                    fees,
-                ) = get_amount_out_from_route(
-                    (amount_in * (i + 1)) // NB_PART,
-                    route,
-                    initial_token_in,
-                    initial_token_out,
-                )
-                amount_out = amounts[len(amounts) - 1]
-                print("amount out : " + str(amount_out))
-                if amount_out != None:
-                    if amount_out > route_amount:
-                        amount_out = amount_out - route_amount
-                        if amount_out > best_amount:
-                            best_amount = amount_out
-                            best_index_pairs = k
-                            best_index_route = j
-                else:
-                    print("amount out is None, skipping pair")
+            # Get the amount out once for the entire route
+            (
+                amounts,
+                virtual_amounts_without_slippage,
+                fees,
+            ) = get_amount_out_from_route(
+                (amount_in * (i + 1)) // NB_PART,
+                route,
+                initial_token_in,
+                initial_token_out,
+            )
+
+            amount_out = amounts[len(amounts)-1]
+            print("amount out : " + str(amount_out))
+
+            if amount_out is not None and amount_out > route_amount:
+                amount_out = amount_out - route_amount
+                for k, _ in enumerate(route):
+                    if amount_out > best_amount:
+                        best_amount = amount_out
+                        best_index_pairs = k
+                        best_index_route = j
 
         # Store the best route and amount for this part if they exist
-        if best_index_route != -1 and best_index_pairs != -1:
-            best_pair = all_routes[best_index_route][best_index_pairs]
+        if best_index_route is not None and best_index_pairs is not None:
             best_routes.append(
                 {
+                    "part": route_part,
                     "route_index": best_index_route,
                     "pair_index": best_index_pairs,
-                    "pair": best_pair,
                     "amount": best_amount,
                 }
             )
@@ -450,6 +500,38 @@ def get_amounts(bin_reserves, params, bin_step, swap_for_y, active_id, amount_in
     return amount_in, int(amount_out), fee_amount
 
 
+# def get_required_amount_in(
+#     bin_reserves, params, bin_step, swap_for_y, active_id, desired_amount_out
+# ):
+#     price = get_price(bin_step, active_id)
+
+#     if swap_for_y:
+#         bin_reserve_out = bin_reserves[1]
+#         amount_in_without_fees = (desired_amount_out << 128) // price
+
+#         if desired_amount_out > bin_reserve_out:
+#             print("desired amount out is more than the reserve")
+#             return None, None
+
+#     else:
+#         bin_reserve_out = bin_reserves[0]
+#         # Calculate the amount_in without fees based on desired output
+#         amount_in_without_fees = (desired_amount_out << 128) / price
+
+#         # Check if the desired output is more than the reserve; if so, it's not possible
+#         if desired_amount_out > bin_reserve_out:
+#             return None, None
+
+#     # Now, determine the fee for this raw amount_in
+#     total_fee = get_total_fee(params, bin_step)
+#     fee_amount = get_fee_amount_from(amount_in_without_fees, total_fee)
+
+#     # Add the fee to the raw cost to get the total amount_in
+#     amount_in = amount_in_without_fees + fee_amount
+
+#     return int(amount_in), int(desired_amount_out), int(fee_amount)
+
+
 def get_protocol_fees(fee_amount, params):
     return fee_amount * params.protocol_share // 10**18
 
@@ -476,6 +558,7 @@ def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
     id = params.active_id
     bins_dict = get_bins(pair, id, RADIUS)
     params.update_references(block_timestamp)
+    print("swapping through : " + pair.name)
     while amount_in > 0:
         bin_reserves = bins_dict.get(id)
         if bin_reserves is None:
@@ -509,36 +592,65 @@ def swap(pair, amount_to_swap, swap_for_y, params, bin_step, block_timestamp):
         id = get_next_non_empty_bin(swap_for_y, id, bins_dict)
 
     if amount_in > 0:
-        raise Exception("Not enough liquidity")
+        print(
+            f"Warning: Only {amount_to_swap - amount_in} was swapped due to insufficient liquidity"
+        )
 
     params.active_id = id
 
     return amount_out
 
 
+# def swap_inversed(pair, amount_swapped, swap_for_y, params, bin_step, block_timestamp):
+#     amount_in, amount_out = 0, amount_swapped
+#     id = params.active_id
+#     bins_dict = get_bins(pair, id, RADIUS)
+#     params.update_references(block_timestamp)
+#     print("swapping through : " + pair.name)
+#     while amount_out > 0:
+#         bin_reserves = bins_dict.get(id)
+#         if bin_reserves is None:
+#             break
+
+#         params.update_volatility_accumulator(id)
+#         amount_in, desired_amount_out, fee_amount = get_required_amount_in(
+#             bin_reserves, params, bin_step, swap_for_y, id, amount_out
+#         )
+
+
 v2pools = Pool.get_pools(BARN_URL, CHAIN, "all", 100)
+print("Amount of pools : " + str(len(v2pools)))
 
 routesAU = get_all_routes(v2pools, AVAX_USDC.tokenX, AVAX_USDC.tokenY)
 routesBU = get_all_routes(v2pools, BTC_B_USDC.tokenX, BTC_B_USDC.tokenY)
-
 
 tokenInAU = AVAX_USDC.tokenX  # AVAX
 tokenOutAU = AVAX_USDC.tokenY  # USDC
 tokenInBU = BTC_B_USDC.tokenX  # BTC.b
 tokenOutBU = BTC_B_USDC.tokenY  # USDC
 
-for i, route in enumerate(routesAU):
+print("Amount of routes : " + str(len(routesBU)))
+print(" ")
+
+# Avax to USDC
+for i, route in enumerate(routesBU):
     print(f"route {i} : ")
     for pair in route:
         print(pair.name + " " + pair.version)
-    # print(get_amount_out_from_route(2 * 10**17, route, tokenInAU, tokenOutAU))
     print(" ")
 
-routes_result = get_routes_and_parts(routesAU, 1 * 10**18, tokenInAU, tokenOutAU)
+# filtered_routes = filter_low_liquidity_routes(routesBU, 1 * 10**18, tokenInBU)
 
-for route_info in routes_result:
+
+
+path = find_best_path_from_amount_in_multi_path(
+    v2pools, 1 * 10**6, tokenInBU, tokenOutBU
+)
+
+print(" ")
+for route_info in path:
+    print(f"Part : {route_info['part']}")
     print(f"Route Index: {route_info['route_index']}")
     print(f"Pair Index: {route_info['pair_index']}")
-    print(f"Pair: {route_info['pair'].name}")
     print(f"Amount: {route_info['amount']}")
     print("-" * 50)  # print a separator for clarity
